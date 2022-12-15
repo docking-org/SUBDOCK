@@ -204,7 +204,7 @@ log "starting DOCK vers=$vers"
 		fi
 	elif [ $USE_DB2 = "true" ]; then
 		if [ $vers = "3.7" ]; then
-			zcat -f $INPUT_FILES | awk 'NF == 8 { print substr($0, 1, 35) } NF != 8 { print $0 }'
+			zcat -f $INPUT_FILES | awk '{if (NF==8 && length==47) print substr($0, 1, 35); else print $0}'
 		else
 			zcat -f $INPUT_FILES
 		fi
