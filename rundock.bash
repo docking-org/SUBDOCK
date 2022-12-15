@@ -194,17 +194,19 @@ sys.stdout.close()" > $TARSTREAM_SCRIPT
 
 pushd $JOB_DIR/working > /dev/null 2>&1
 
+awk_cmd='{if (substr($0, 1, 1) == "S" && NF==8 && length==47) print substr($0, 1, 35); else print $0}'
+
 log "starting DOCK vers=$vers"
 (
 	if [ $USE_DB2_TGZ = "true" ]; then
 		if [ $vers = "3.7" ]; then
-			python3 $TARSTREAM_SCRIPT $INPUT_FILES | awk 'NF == 8 { print substr($0, 1, 35) } NF != 8 { print $0 }'
+			python3 $TARSTREAM_SCRIPT $INPUT_FILES | awk "$awk_cmd"
 		else
 			python3 $TARSTREAM_SCRIPT $INPUT_FILES
 		fi
 	elif [ $USE_DB2 = "true" ]; then
 		if [ $vers = "3.7" ]; then
-			zcat -f $INPUT_FILES | awk '{if (substr($0, 1, 1) == "S" && NF==8 && length==47) print substr($0, 1, 35); else print $0}'
+			zcat -f $INPUT_FILES | awk "$awk_cmd"
 		else
 			zcat -f $INPUT_FILES
 		fi
