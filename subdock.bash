@@ -73,16 +73,25 @@ exists DOCKFILES "nfs directory containing dock related files and INDOCK configu
 exists DOCKEXEC "nfs path to dock executable"
 
 echo "=================job controller settings================="
+# queue system is active if set to "true" otherwise inactive
 exists_warning USE_SLURM "use slurm" "true"
 exists_warning USE_SLURM_ARGS "addtl arguments for SLURM sbatch command" ""
 exists_warning USE_SGE "use sge" "false"
 exists_warning USE_SGE_ARGS "addtl arguments for SGE qsub command" ""
 exists_warning USE_PARALLEL "use GNU parallel" "false"
 
+#!~~QUEUE TEMPLATE~~!#
+#exists_warning USE_MY_QUEUE "use MY_QUEUE" "false"
+#exists_warning USE_MY_QUEUE_ARGS "addtl arguments for MY_QUEUE" ""
+
 n=0
 [ "$USE_SLURM" = "true" ] && n=$((n+1))
 [ "$USE_SGE" = "true" ] && n=$((n+1))
 [ "$USE_PARALLEL" = "true" ] && n=$((n+1))
+
+#!~~QUEUE TEMPLATE~~!#
+#[ "$USE_MY_QUEUE" = "true" ] && n=$((n+1))
+
 if [ $n -gt 1 ]; then
 	echo "cannnot select more than one job controller!"
 	exit 1
@@ -181,6 +190,9 @@ echo "submitting $njobs out of $n jobs over $n_input_tot files. $((n-njobs)) alr
 [ -z $SBATCH_EXEC ] && SBATCH_EXEC=sbatch
 [ -z $PARALLEL_EXEC ] && PARALLEL_EXEC=parallel
 
+#!~~QUEUE TEMPLATE~~!#
+#[ -z $MY_QUEUE_EXEC ] && MY_QUEUE_EXEC=something
+
 
 var_args=
 echo "!!! save the following to its own file for a re-usable superscript !!!"
@@ -193,6 +205,11 @@ for var in EXPORT_DEST INPUT_SOURCE DOCKFILES\
  QSUB_EXEC SBATCH_EXEC PARALLEL_EXEC; do
 	export $var
 	echo "export $var=${!var}"
+	
+	#!~~QUEUE TEMPLATE~~!#
+	# your queueing system may require explicit enumeration of environment values to export (like sge)
+	# add a similar implementation here if required
+	
 	[ -z "$var_args" ] && var_args="-v $var=${!var}" || var_args="$var_args -v $var=${!var}"
 done
 echo "bash $BINPATH"
@@ -230,10 +247,19 @@ elif [ "$USE_PARALLEL" = "true" ]; then
 	fi
 elif [ "$USE_SLURM" = "true" ]; then
 	if [ $MAX_PARALLEL -gt 0 ]; then
-		$SBATCH_EXEC $SBATCH_ARGS --signal=B:USR1@120 --array=1-$njobs%$MAX_PARALLEL $SLURM_LOG_ARGS $RUNDOCK_PATH
+		#                            VV causes slurm to interrupt script 2m prior to timeout (if one is specified)
+		$SBATCH_EXEC $USE_SLURM_ARGS --signal=B:USR1@120 --array=1-$njobs%$MAX_PARALLEL $SLURM_LOG_ARGS $RUNDOCK_PATH
 	else
-		$SBATCH_EXEC $SBATCH_ARGS --signal=B:USR1@120 --array=1-$njobs $SLURM_LOG_ARGS $RUNDOCK_PATH
+		$SBATCH_EXEC $USE_SLURM_ARGS --signal=B:USR1@120 --array=1-$njobs $SLURM_LOG_ARGS $RUNDOCK_PATH
 	fi
+#!~~QUEUE TEMPLATE~~!#
+#elif [ "$USE_MY_QUEUE" = "true" ]; then
+#	if [ $MAX_PARALLEL -gt 0 ]; then 
+# 		# ntasks, script, etc. are dummy arguments- replace appropriately
+#		$MY_QUEUE_EXEC $USE_MY_QUEUE_ARGS --ntasks=$njobs --max-parallel-tasks=$MAX_PARALLEL --script=$RUNDOCK_PATH
+#	else
+#		$MY_QUEUE_EXEC $USE_MY_QUEUE_ARGS --ntasks=$njobs --script=$RUNDOCK_PATH
+#	fi
 else
 	echo "you need to specify at least one job submission method!!"
 	exit 1
