@@ -21,11 +21,19 @@ else
 fi
 LONGCACHE=${LONGCACHE-/scratch}
 
-if ! [ "$USE_PARALLEL" = "false" ]; then
+if [ "$USE_PARALLEL" = "true" ]; then
 	TASK_ID=$1
-else
-	JOB_ID=${SLURM_ARRAY_JOB_ID-$JOB_ID}
-	TASK_ID=${SLURM_ARRAY_TASK_ID-$SGE_TASK_ID}
+elif [ "$USE_SLURM" = "true" ]; then
+	JOB_ID=${SLURM_ARRAY_JOB_ID}
+	TASK_ID=${SLURM_ARRAY_TASK_ID}
+elif [ "$USE_SGE" = "true" ]; then
+	JOB_ID=$JOB_ID
+	TASK_ID=$SGE_TASK_ID
+#!~~QUEUE TEMPLATE~~!#
+# add method for setting TASK_ID and JOB_ID values for your queueing system
+#elif [ "$USE_MY_QUEUE" = "true" ]; then
+#	JOB_ID=$(get_my_queue_job_id)
+#	TASK_ID=$(get_my_queue_task_id)
 fi
 
 # initialize all our important variables & directories
