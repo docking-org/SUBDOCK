@@ -74,7 +74,7 @@ exists DOCKEXEC "nfs path to dock executable"
 
 echo "=================job controller settings================="
 # queue system is active if set to "true" otherwise inactive
-exists_warning USE_SLURM "use slurm" "true"
+exists_warning USE_SLURM "use slurm" "false"
 exists_warning USE_SLURM_ARGS "addtl arguments for SLURM sbatch command" ""
 exists_warning USE_SGE "use sge" "false"
 exists_warning USE_SGE_ARGS "addtl arguments for SGE qsub command" ""
