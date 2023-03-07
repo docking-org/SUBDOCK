@@ -178,7 +178,7 @@ with open(sys.argv[1], 'r') as indock, open(sys.argv[2], 'w') as savedest:
 				savedest.write(format_indock_arg(label, value))
 		else:
 			if i == 0:
-				savedest.write('DOCK $vers parameter')
+				savedest.write('DOCK $vers parameter{}'.format(chr(10)))
 				continue
 			savedest.write(line)" > $FIXINDOCK_SCRIPT
 
