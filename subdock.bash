@@ -55,13 +55,19 @@ function exists_warning {
 }
 
 # allow arguments to be passed in this way, cause why not. live your life
-for arg in $@; do
+# quotation marks around the $@ very important!!! here is why:
+# cmd.bash a="b c" d
+# $1 will be "a=b c", $2 will be "d"
+# however, if you iterate through the arguments with $@, something odd happens
+# $1 becomes "a=b", $2 becomes "c" and $3 becomes "d"
+# unless you include the quotation marks around $@, in which case it reverts back to the "normal" behavior
+for arg in "$@"; do
 	# remove leading "--"
 	arg_s=$(echo "$arg" | tail -c+3)
 	var=$(echo $arg_s | cut -d'=' -f1)
-	val=$(echo $arg_s | cut -d'=' -f2)
+	val=$(echo $arg_s | cut -d'=' -f2-)
 	var=$(to_upper $var)
-	export $var=$val
+	export $var="$val"
 done
 
 echo "SUBDOCK! Run docking workloads via job controller of your choice"
@@ -127,11 +133,12 @@ if [ $failed -eq 1 ]; then
 	exit 1
 fi
 
-ligand_atom_file=$(grep -w ligand_atom_file $DOCKFILES/INDOCK | awk '{print $2}')
-if [ "$ligand_atom_file" != "split_database_index" ]; then
-	echo "ligand_atom_file option in INDOCK is [$ligand_atom_file], should be [split_database_index]. Please change and try again."
-	exit 1
-fi
+# old dummy-proofing code, not needed anymore as we programmatically fix this mistake now
+#ligand_atom_file=$(grep -w ligand_atom_file $DOCKFILES/INDOCK | awk '{print $2}')
+#if [ "$ligand_atom_file" != "split_database_index" ]; then
+#	echo "ligand_atom_file option in INDOCK is [$ligand_atom_file], should be [split_database_index]. Please change and try again."
+#	exit 1
+#fi
 
 if [ -w $DOCKFILES ]; then
 	cat $DOCKFILES/* | sha1sum | awk '{print $1}' > $DOCKFILES/.shasum
@@ -209,7 +216,11 @@ for var in EXPORT_DEST INPUT_SOURCE DOCKFILES\
 	#!~~QUEUE TEMPLATE~~!#
 	# your queueing system may require explicit enumeration of environment values to export (like sge)
 	# add a similar implementation here if required
-	
+done
+# pass in rundock specific vars here- passing in the subdock specific ones as well runs into issue, mostly because of USE_SGE_ARGS and the like having non-standard formatting
+for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC \
+ SHRTCACHE LONGCACHE SHRTCACHE_USE_ENV \
+ USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE; do
 	[ -z "$var_args" ] && var_args="-v $var=${!var}" || var_args="$var_args -v $var=${!var}"
 done
 echo "bash $BINPATH"
@@ -234,9 +245,11 @@ SGE_LOG_ARGS="-o $EXPORT_DEST/logs -e $EXPORT_DEST/logs"
 
 if [ "$USE_SGE" = "true" ]; then
 	if [ $MAX_PARALLEL -gt 0 ]; then
-		$QSUB_EXEC $USE_SGE_ARGS $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -q !gpu.q -t 1-$njobs -tc $MAX_PARALLEL $RUNDOCK_PATH
+	#echo	$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -q !gpu.q -t 1-$njobs -tc $MAX_PARALLEL $USE_SGE_ARGS $RUNDOCK_PATH
+		$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -q !gpu.q -t 1-$njobs -tc $MAX_PARALLEL $USE_SGE_ARGS $RUNDOCK_PATH
 	else
-		$QSUB_EXEC $USE_SGE_ARGS $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -q !gpu.q -t 1-$njobs $RUNDOCK_PATH
+	#echo	$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -q !gpu.q -t 1-$njobs $USE_SGE_ARGS $RUNDOCK_PATH
+		$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -q !gpu.q -t 1-$njobs $USE_SGE_ARGS $RUNDOCK_PATH
 	fi
 elif [ "$USE_PARALLEL" = "true" ]; then
 	export JOB_ID='test'
