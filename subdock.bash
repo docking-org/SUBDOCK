@@ -220,7 +220,8 @@ done
 # pass in rundock specific vars here- passing in the subdock specific ones as well runs into issue, mostly because of USE_SGE_ARGS and the like having non-standard formatting
 for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC \
  SHRTCACHE LONGCACHE SHRTCACHE_USE_ENV \
- USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE; do
+ USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE \
+ USE_SLURM USE_SGE USE_PARALLEL; do
 	[ -z "$var_args" ] && var_args="-v $var=${!var}" || var_args="$var_args -v $var=${!var}"
 done
 echo "bash $BINPATH"
@@ -245,11 +246,11 @@ SGE_LOG_ARGS="-o $EXPORT_DEST/logs -e $EXPORT_DEST/logs"
 
 if [ "$USE_SGE" = "true" ]; then
 	if [ $MAX_PARALLEL -gt 0 ]; then
-	#echo	$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -q !gpu.q -t 1-$njobs -tc $MAX_PARALLEL $USE_SGE_ARGS $RUNDOCK_PATH
-		$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -q !gpu.q -t 1-$njobs -tc $MAX_PARALLEL $USE_SGE_ARGS $RUNDOCK_PATH
+	echo	$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -t 1-$njobs -tc $MAX_PARALLEL $USE_SGE_ARGS $RUNDOCK_PATH
+		$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -t 1-$njobs -tc $MAX_PARALLEL $USE_SGE_ARGS $RUNDOCK_PATH
 	else
-	#echo	$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -q !gpu.q -t 1-$njobs $USE_SGE_ARGS $RUNDOCK_PATH
-		$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -q !gpu.q -t 1-$njobs $USE_SGE_ARGS $RUNDOCK_PATH
+	echo	$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -t 1-$njobs $USE_SGE_ARGS $RUNDOCK_PATH
+		$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -t 1-$njobs $USE_SGE_ARGS $RUNDOCK_PATH
 	fi
 elif [ "$USE_PARALLEL" = "true" ]; then
 	export JOB_ID='test'
