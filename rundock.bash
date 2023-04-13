@@ -92,16 +92,14 @@ LOG_ERR=${SHRTCACHE}/rundock_${JOB_ID}_${SGE_TASK_ID}.err
 
 # bring directories into existence
 mkdir -p $JOB_DIR/working
-mkdir -p $DOCKFILES_TEMP
 
 mkdir -p $OUTPUT
 chmod -R 777 $OUTPUT
 
-#cp -a $DOCKFILES/. $DOCKFILES_TEMP
-
 mkdir $JOB_DIR/dockfiles
 pushd $DOCKFILES
 for f in $(find .); do
+	[ "$f" = '.' ] && continue
 	fp=$PWD/$f
 	jp=$JOB_DIR/dockfiles/$f
 	mkdir -p $(dirname $jp)
