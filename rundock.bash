@@ -219,7 +219,7 @@ log "starting DOCK vers=$vers"
 			zcat -f $INPUT_FILES
 		fi
 	fi
-) | /usr/bin/time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/dockfiles/INDOCK &
+) | env time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/dockfiles/INDOCK &
 dockpid=$!
 
 function notify_dock {
