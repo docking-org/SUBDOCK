@@ -255,9 +255,9 @@ if [ "$USE_SGE" = "true" ]; then
 elif [ "$USE_PARALLEL" = "true" ]; then
 	export JOB_ID='test'
 	if [ $MAX_PARALLEL -gt 0 ]; then
-		/usr/bin/time -v -o $EXPORT_DEST/perfstats $PARALLEL_EXEC --results $EXPORT_DEST/logs -j $MAX_PARALLEL bash $RUNDOCK_PATH ::: $(seq 1 $njobs)
+		env time -v -o $EXPORT_DEST/perfstats $PARALLEL_EXEC --results $EXPORT_DEST/logs -j $MAX_PARALLEL bash $RUNDOCK_PATH ::: $(seq 1 $njobs)
 	else
-		/usr/bin/time -v -o $EXPORT_DEST/perfstats $PARALLEL_EXEC --results $EXPORT_DEST/logs bash $RUNDOCK_PATH ::: $(seq 1 $njobs)
+		env time -v -o $EXPORT_DEST/perfstats $PARALLEL_EXEC --results $EXPORT_DEST/logs bash $RUNDOCK_PATH ::: $(seq 1 $njobs)
 	fi
 elif [ "$USE_SLURM" = "true" ]; then
 	if [ $MAX_PARALLEL -gt 0 ]; then
