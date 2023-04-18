@@ -43,7 +43,8 @@ if [ "$USE_DB2_TGZ" = "true" ]; then
 elif [ "$USE_DB2" = "true" ]; then
 	batchsize=${USE_DB2_BATCH_SIZE-100}
 fi
-offset=$((batchsize*TASK_ID))
+TASK_ID_ACT=$(head -n $TASK_ID $EXPORT_DEST/joblist | tail -n 1 | awk '{print $2}')
+offset=$((batchsize*TASK_ID_ACT))
 echo $offset $batchsize
 INPUT_FILES=$(head -n $offset $EXPORT_DEST/file_list | tail -n $batchsize)
 
@@ -60,6 +61,7 @@ log JOB_ID=$JOB_ID
 log SGE_TASK_ID=$SGE_TASK_ID
 log SLURM_ARRAY_TASK_ID=$SLURM_ARRAY_TASK_ID
 log TASK_ID=$TASK_ID
+log TASK_ID_ACT=$TASK_ID_ACT
 
 # validate required environmental variables
 first=
@@ -78,17 +80,11 @@ done
 
 JOB_DIR=${SHRTCACHE}/$(whoami)/${JOB_ID}_${TASK_ID}
 
-if ! [ "$USE_DB2" = "false" ]; then
-	OUTPUT=$EXPORT_DEST/$TASK_ID
-else
-	OUTPUT=${EXPORT_DEST}/$(sed "${TASK_ID}q;d" $EXPORT_DEST/joblist | awk '{print $2}')
-fi
+
+OUTPUT=${EXPORT_DEST}/$TASK_ID_ACT
 log OUTPUT=$OUTPUT
 log INPUT_FILES=$INPUT_FILES
 log JOB_DIR=$JOB_DIR
-
-LOG_OUT=${SHRTCACHE}/rundock_${JOB_ID}_${SGE_TASK_ID}.out
-LOG_ERR=${SHRTCACHE}/rundock_${JOB_ID}_${SGE_TASK_ID}.err
 
 # bring directories into existence
 mkdir -p $JOB_DIR/working
