@@ -175,23 +175,28 @@ else
 	exit 1
 fi
 
+# new variable- keep track of each resubmission for posterity, recorded in joblist files
+# find this value by counting joblist files
+RESUBMIT_COUNT=0
+while [ -f $EXPORT_DEST/joblist.$RESUBMIT_COUNT ]; then
+	RESUBMIT_COUNT=$((RESUBMIT_COUNT+1))
+done
+
 for input in $($get_input_cmd); do
-	if ! [ -f $EXPORT_DEST/$n/OUTDOCK.0 ]; then
-		echo $input $n
+	if ! [ -f $EXPORT_DEST/$input/OUTDOCK.0 ]; then
+		echo $input
 		njobs=$((njobs+1))
-	elif ! [ -f $EXPORT_DEST/$n/test.mol2.gz.0 ]; then
-		rm $EXPORT_DEST/$n/*
-		echo $input $n
+	elif ! [ -f $EXPORT_DEST/$input/test.mol2.gz.0 ]; then
+		rm $EXPORT_DEST/$input/*
+		echo $input
 		njobs=$((njobs+1))
-	elif [ -f $EXPORT_DEST/$n/OUTDOCK.0 ] && [ -f $EXPORT_DEST/$n/restart ]; then
-		echo $input $n
+	elif [ -f $EXPORT_DEST/$input/OUTDOCK.0 ] && [ -f $EXPORT_DEST/$input/restart ]; then
+		echo $input
 		njobs=$((njobs+1))
 	fi
-	n=$((n+1))
-done > $EXPORT_DEST/joblist
-n=$((n-1))
+done > $EXPORT_DEST/joblist.$RESUBMIT_COUNT
 
-echo "submitting $njobs out of $n jobs over $n_input_tot files. $((n-njobs)) already complete"
+echo "submitting $njobs out of $input jobs over $n_input_tot files. $((input-njobs)) already complete"
 
 [ -z $QSUB_EXEC ] && QSUB_EXEC=qsub
 [ -z $SBATCH_EXEC ] && SBATCH_EXEC=sbatch
@@ -210,7 +215,6 @@ for var in EXPORT_DEST INPUT_SOURCE DOCKFILES\
  USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE\
  USE_SLURM USE_SLURM_ARGS USE_SGE USE_SGE_ARGS USE_PARALLEL MAX_PARALLEL\
  QSUB_EXEC SBATCH_EXEC PARALLEL_EXEC; do
-	export $var
 	echo "export $var=${!var}"
 	
 	#!~~QUEUE TEMPLATE~~!#
@@ -221,7 +225,9 @@ done
 for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC \
  SHRTCACHE LONGCACHE SHRTCACHE_USE_ENV \
  USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE \
- USE_SLURM USE_SGE USE_PARALLEL; do
+ USE_SLURM USE_SGE USE_PARALLEL \
+ RESUBMIT_COUNT; do
+ 	export $var
 	[ -z "$var_args" ] && var_args="-v $var=${!var}" || var_args="$var_args -v $var=${!var}"
 done
 echo "bash $BINPATH"
