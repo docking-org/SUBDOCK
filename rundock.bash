@@ -43,7 +43,7 @@ if [ "$USE_DB2_TGZ" = "true" ]; then
 elif [ "$USE_DB2" = "true" ]; then
 	batchsize=${USE_DB2_BATCH_SIZE-100}
 fi
-TASK_ID_ACT=$(head -n $TASK_ID $EXPORT_DEST/joblist | tail -n 1 | awk '{print $2}')
+TASK_ID_ACT=$(head -n $TASK_ID $EXPORT_DEST/joblist.$RESUBMIT_COUNT | tail -n 1)
 offset=$((batchsize*TASK_ID_ACT))
 echo $offset $batchsize
 INPUT_FILES=$(head -n $offset $EXPORT_DEST/file_list | tail -n $batchsize)
@@ -66,7 +66,7 @@ log TASK_ID_ACT=$TASK_ID_ACT
 # validate required environmental variables
 first=
 fail=
-for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC SHRTCACHE LONGCACHE JOB_ID TASK_ID; do
+for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC SHRTCACHE LONGCACHE JOB_ID TASK_ID RESUBMIT_COUNT; do
   if [ -z ${!var} ]; then
     if [ -z $first ]; then
       echo "the following required parameters are not defined: "
@@ -79,7 +79,6 @@ for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC SHRTCACHE LONGCACHE JOB_I
 done
 
 JOB_DIR=${SHRTCACHE}/$(whoami)/${JOB_ID}_${TASK_ID}
-
 
 OUTPUT=${EXPORT_DEST}/$TASK_ID_ACT
 log OUTPUT=$OUTPUT
