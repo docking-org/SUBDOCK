@@ -49,6 +49,14 @@ function exists_warning {
 		export $env_name="$default"
 		echo
 	else
+		# handle booleans specially here- aim is to reduce user confusion
+		if [ "$default" = "false" ] || [ "$default" = "true" ]; then # determine whether this is a boolean value based on the default
+			export $env_name=$(to_lower ${!env_name}) # lowercase the boolean, just in case we have python enjoyers
+			if ! [ ${!env_name} = "true" ] && ! [ ${!env_name} = "false" ]; then
+				echo "expected boolean value for $env_name, must be true or false (not case sensitive). current value=${!env_name}"
+				failed=1
+			fi
+		fi
 		echo $env_name=${!env_name}
 		echo
 	fi
@@ -150,10 +158,10 @@ njobs=0
 warned=
 
 function handle_input_source {
-	exts=$1
+	exts=$@
 	if [ -d $INPUT_SOURCE ]; then
 		printf "" > $EXPORT_DEST/file_list
-		for ext in exts; do
+		for ext in $exts; do
 			find $INPUT_SOURCE -name "$ext" -type f | sort >> $EXPORT_DEST/file_list
 		done
 	else
@@ -163,11 +171,11 @@ function handle_input_source {
 }
 
 if [ "$USE_DB2_TGZ" = "true" ]; then
-	inp=$(handle_input_source '*.db2.tgz')
+	inp=$(handle_input_source '*.db2.tgz' '*.db2.tar.gz')
 	n_input_tot=$(cat $inp | wc -l)
 	get_input_cmd="seq 1 $(( (n_input_tot+USE_DB2_TGZ_BATCH_SIZE-1)/USE_DB2_TGZ_BATCH_SIZE))"
 elif [ "$USE_DB2" = "true" ]; then
-	inp=$(handle_input_source '*.db2.gz')
+	inp=$(handle_input_source '*.db2.gz' '*.db2')
 	n_input_tot=$(cat $inp | wc -l)
 	get_input_cmd="seq 1 $(( (n_input_tot+USE_DB2_BATCH_SIZE-1)/USE_DB2_BATCH_SIZE))"
 else
@@ -178,7 +186,7 @@ fi
 # new variable- keep track of each resubmission for posterity, recorded in joblist files
 # find this value by counting joblist files
 RESUBMIT_COUNT=0
-while [ -f $EXPORT_DEST/joblist.$RESUBMIT_COUNT ]; then
+while [ -f $EXPORT_DEST/joblist.$RESUBMIT_COUNT ]; do
 	RESUBMIT_COUNT=$((RESUBMIT_COUNT+1))
 done
 
@@ -235,7 +243,8 @@ echo "==============================================================="
 
 
 if [ $njobs -eq 0 ]; then
-	echo "all $n jobs complete!"
+	echo "all $input jobs complete!"
+	rm $EXPORT_DEST/joblist.$RESUBMIT_COUNT
 	exit 0
 fi
 
