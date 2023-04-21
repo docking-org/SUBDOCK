@@ -163,7 +163,8 @@ function handle_input_source {
 	if [ -d $INPUT_SOURCE ]; then
 		printf "" > $EXPORT_DEST/file_list
 		for ext in $exts; do
-			find $INPUT_SOURCE -name "$ext" -type f | sort >> $EXPORT_DEST/file_list
+#		echo	find $INPUT_SOURCE -name '*.'"$ext" -type f | sort >> $EXPORT_DEST/file_list 1>&2
+			find $INPUT_SOURCE -name '*.'"$ext" -type f | sort >> $EXPORT_DEST/file_list
 		done
 	else
 		cp $INPUT_SOURCE $EXPORT_DEST/file_list
@@ -172,11 +173,11 @@ function handle_input_source {
 }
 
 if [ "$USE_DB2_TGZ" = "true" ]; then
-	inp=$(handle_input_source '*.db2.tgz' '*.db2.tar.gz')
+	inp=$(handle_input_source 'db2.tgz' 'db2.tar.gz')
 	n_input_tot=$(cat $inp | wc -l)
 	get_input_cmd="seq 1 $(( (n_input_tot+USE_DB2_TGZ_BATCH_SIZE-1)/USE_DB2_TGZ_BATCH_SIZE))"
 elif [ "$USE_DB2" = "true" ]; then
-	inp=$(handle_input_source '*.db2.gz' '*.db2')
+	inp=$(handle_input_source 'db2.gz' 'db2')
 	n_input_tot=$(cat $inp | wc -l)
 	get_input_cmd="seq 1 $(( (n_input_tot+USE_DB2_BATCH_SIZE-1)/USE_DB2_BATCH_SIZE))"
 else
