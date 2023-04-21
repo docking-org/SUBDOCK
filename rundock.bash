@@ -85,6 +85,22 @@ log OUTPUT=$OUTPUT
 log INPUT_FILES=$INPUT_FILES
 log JOB_DIR=$JOB_DIR
 
+# support http/https links for files here
+_INPUT_FILES=""
+i=0
+mkdir -p $JOB_DIR/inet_files_cache
+for fs in $INPUT_FILES; do
+	if [[ "$fs" == "http://"* ]] || [[ "$fs" == "https://"* ]]; then
+		log downloading $fs
+		curl -o $JOB_DIR/inet_files_cache/$i $fs
+		_INPUT_FILES="$_INPUT_FILES $JOB_DIR/inet_files_cache/$i"
+	else
+		_INPUT_FILES="$_INPUT_FILES $fs"
+	fi
+	i=$((i+1))
+done
+INPUT_FILES=$_INPUT_FILES
+		
 # bring directories into existence
 mkdir -p $JOB_DIR/working
 
