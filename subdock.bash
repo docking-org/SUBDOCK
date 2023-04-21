@@ -93,6 +93,7 @@ exists_warning USE_SLURM_ARGS "addtl arguments for SLURM sbatch command" ""
 exists_warning USE_SGE "use sge" "false"
 exists_warning USE_SGE_ARGS "addtl arguments for SGE qsub command" ""
 exists_warning USE_PARALLEL "use GNU parallel" "false"
+exists_warning USE_PARALLEL_ARGS "addtl arguments for GNU parallel command" ""
 
 #!~~QUEUE TEMPLATE~~!#
 #exists_warning USE_MY_QUEUE "use MY_QUEUE" "false"
@@ -135,6 +136,7 @@ exists_warning LONGCACHE "longer term storage for files shared between jobs" /sc
 
 echo "=================miscellaneous================="
 exists_warning SUBMIT_WAIT_TIME "how many seconds to wait before submitting" 5
+exists_warning USE_CACHED_SUBMIT_STATS "only check completion for jobs submitted in the latest iteration. Faster re-submission, but will ignore jobs that have been manually reset" "false"
 
 if [ $failed -eq 1 ]; then
 	echo "exiting with error"
@@ -147,15 +149,14 @@ fi
 #	echo "ligand_atom_file option in INDOCK is [$ligand_atom_file], should be [split_database_index]. Please change and try again."
 #	exit 1
 #fi
-
-if [ -w $DOCKFILES ]; then
-	cat $DOCKFILES/* | sha1sum | awk '{print $1}' > $DOCKFILES/.shasum
-fi
+# this isn't used any more, used to be to keep track of dockfiles versions
+#if [ -w $DOCKFILES ]; then
+#	cat $DOCKFILES/* | sha1sum | awk '{print $1}' > $DOCKFILES/.shasum
+#fi
 
 mkdir -p $EXPORT_DEST/logs
 n=1
 njobs=0
-warned=
 
 function handle_input_source {
 	exts=$@
@@ -189,9 +190,16 @@ RESUBMIT_COUNT=0
 while [ -f $EXPORT_DEST/joblist.$RESUBMIT_COUNT ]; do
 	RESUBMIT_COUNT=$((RESUBMIT_COUNT+1))
 done
+# resubmitting for the 2nd time onward will be faster if we use the cached joblist from the previous run. optional feature 
+if [ $RESUBMIT_COUNT -gt 0 ] && [ $USE_CACHED_SUBMIT_STATS = "true" ]; then
+	get_input_cmd="cat $EXPORT_DEST/joblist.$((RESUBMIT_COUNT-1))"
+fi
 
 for input in $($get_input_cmd); do
-	if ! [ -f $EXPORT_DEST/$input/OUTDOCK.0 ]; then
+	if [ $RESUBMIT_COUNT -eq 0 ]; then # first run don't bother checking file existence
+		echo $input
+		njobs=$((njobs+1))
+	elif ! [ -f $EXPORT_DEST/$input/OUTDOCK.0 ]; then
 		echo $input
 		njobs=$((njobs+1))
 	elif ! [ -f $EXPORT_DEST/$input/test.mol2.gz.0 ]; then
@@ -214,32 +222,36 @@ echo "submitting $njobs out of $input jobs over $n_input_tot files. $((input-njo
 #[ -z $MY_QUEUE_EXEC ] && MY_QUEUE_EXEC=something
 
 
-var_args=
 echo "!!! save the following to its own file for a re-usable superscript !!!"
 echo "==============================================================="
 echo "#!/bin/bash"
-for var in EXPORT_DEST INPUT_SOURCE DOCKFILES\
- DOCKEXEC SHRTCACHE LONGCACHE SHRTCACHE_USE_ENV\
+for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC \
+ SHRTCACHE LONGCACHE SHRTCACHE_USE_ENV \
  USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE\
- USE_SLURM USE_SLURM_ARGS USE_SGE USE_SGE_ARGS USE_PARALLEL MAX_PARALLEL\
- QSUB_EXEC SBATCH_EXEC PARALLEL_EXEC; do
+ USE_SLURM USE_SLURM_ARGS USE_SGE USE_SGE_ARGS USE_PARALLEL USE_PARALLEL_ARGS MAX_PARALLEL\
+ QSUB_EXEC SBATCH_EXEC PARALLEL_EXEC \
+ SUBMIT_WAIT_TIME USE_CACHED_SUBMIT_STATS; do
 	echo "export $var=${!var}"
-	
-	#!~~QUEUE TEMPLATE~~!#
-	# your queueing system may require explicit enumeration of environment values to export (like sge)
-	# add a similar implementation here if required
 done
-# pass in rundock specific vars here- passing in the subdock specific ones as well runs into issue, mostly because of USE_SGE_ARGS and the like having non-standard formatting
+echo "bash $BINPATH"
+echo "==============================================================="
+
+SGE_ENV_ARGS=""
+SLURM_ENV_ARGS=""
+# pass in rundock specific vars here- passing in the subdock specific ones as well runs into issue, mostly because of USE_SGE_ARGS and the like having non-standard formatting (damn whitespace...)
 for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC \
  SHRTCACHE LONGCACHE SHRTCACHE_USE_ENV \
  USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE \
  USE_SLURM USE_SGE USE_PARALLEL \
  RESUBMIT_COUNT; do
+	#!~~QUEUE TEMPLATE~~!#
+        # your queueing system may require explicit enumeration of environment values to export (like sge)
+        # add a similar implementation here if required
  	export $var
-	[ -z "$var_args" ] && var_args="-v $var=${!var}" || var_args="$var_args -v $var=${!var}"
+	[ -z "$SGE_ENV_ARGS" ] && SGE_ENV_ARGS="-v $var=${!var}" || SGE_ENV_ARGS="$SGE_ENV_ARGS -v $var=${!var}"
+	# explicitly define slurm args here- don't copy whole user environment with --export=ALL, in case something weird is there
+	[ -z "$SLURM_ENV_ARGS" ] && SLURM_ENV_ARGS="--export=$var" || SLURM_ENV_ARGS="$SLURM_ENV_ARGS,$var"
 done
-echo "bash $BINPATH"
-echo "==============================================================="
 
 
 if [ $njobs -eq 0 ]; then
@@ -258,29 +270,26 @@ echo "submitting jobs"
 
 SLURM_LOG_ARGS="-o $EXPORT_DEST/logs/%a.out -e $EXPORT_DEST/logs/%a.err"
 SGE_LOG_ARGS="-o $EXPORT_DEST/logs -e $EXPORT_DEST/logs"
+USE_PARALLEL_ARGS="$USE_PARALLEL_ARGS --termseq USR1,10000,KILL,25" # USR1, wait 10s, then kill, then 25ms and exit
 
 if [ "$USE_SGE" = "true" ]; then
-	if [ $MAX_PARALLEL -gt 0 ]; then
-	echo	$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -t 1-$njobs -tc $MAX_PARALLEL $USE_SGE_ARGS $RUNDOCK_PATH
-		$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -t 1-$njobs -tc $MAX_PARALLEL $USE_SGE_ARGS $RUNDOCK_PATH
-	else
-	echo	$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -t 1-$njobs $USE_SGE_ARGS $RUNDOCK_PATH
-		$QSUB_EXEC $var_args $SGE_LOG_ARGS -cwd -S /bin/bash -t 1-$njobs $USE_SGE_ARGS $RUNDOCK_PATH
-	fi
+	[ $MAX_PARALLEL -gt 0 ] && USE_SGE_ARGS="$USE_SGE_ARGS -tc $MAX_PARALLEL"
+echo	$QSUB_EXEC $SGE_ENV_ARGS $SGE_LOG_ARGS -cwd -S /bin/bash -t 1-$njobs $USE_SGE_ARGS $RUNDOCK_PATH
+	$QSUB_EXEC $SGE_ENV_ARGS $SGE_LOG_ARGS -cwd -S /bin/bash -t 1-$njobs $USE_SGE_ARGS $RUNDOCK_PATH
+
 elif [ "$USE_PARALLEL" = "true" ]; then
+	[ $MAX_PARALLEL -gt 0 ] && USE_PARALLEL_ARGS="$USE_PARALLEL_ARGS -j $MAX_PARALLEL"
 	export JOB_ID='test'
-	if [ $MAX_PARALLEL -gt 0 ]; then
-		env time -v -o $EXPORT_DEST/perfstats $PARALLEL_EXEC --results $EXPORT_DEST/logs -j $MAX_PARALLEL bash $RUNDOCK_PATH ::: $(seq 1 $njobs)
-	else
-		env time -v -o $EXPORT_DEST/perfstats $PARALLEL_EXEC --results $EXPORT_DEST/logs bash $RUNDOCK_PATH ::: $(seq 1 $njobs)
-	fi
+echo	env time -v -o $EXPORT_DEST/perfstats $PARALLEL_EXEC --results $EXPORT_DEST/logs $USE_PARALLEL_ARGS bash $RUNDOCK_PATH ::: $(seq 1 $njobs)
+	env time -v -o $EXPORT_DEST/perfstats $PARALLEL_EXEC --results $EXPORT_DEST/logs $USE_PARALLEL_ARGS bash $RUNDOCK_PATH ::: $(seq 1 $njobs)
+
 elif [ "$USE_SLURM" = "true" ]; then
-	if [ $MAX_PARALLEL -gt 0 ]; then
-		#                            VV causes slurm to interrupt script 2m prior to timeout (if one is specified)
-		$SBATCH_EXEC $USE_SLURM_ARGS --signal=B:USR1@120 --array=1-$njobs%$MAX_PARALLEL $SLURM_LOG_ARGS $RUNDOCK_PATH
-	else
-		$SBATCH_EXEC $USE_SLURM_ARGS --signal=B:USR1@120 --array=1-$njobs $SLURM_LOG_ARGS $RUNDOCK_PATH
-	fi
+	USE_SLURM_ARGS="$USE_SLURM_ARGS --array=1-$njobs"
+	[ $MAX_PARALLEL -gt 0 ] && USE_SLURM_ARGS="${USE_SLURM_ARGS}%$MAX_PARALLEL"
+		#                            vv causes slurm to interrupt script 10s prior to timeout (if one is specified)
+echo	$SBATCH_EXEC $USE_SLURM_ARGS --signal=B:USR1@10 $SLURM_ENV_ARGS $USE_SLURM_ARGS $SLURM_LOG_ARGS $RUNDOCK_PATH
+	$SBATCH_EXEC $USE_SLURM_ARGS --signal=B:USR1@10 $SLURM_ENV_ARGS $USE_SLURM_ARGS $SLURM_LOG_ARGS $RUNDOCK_PATH
+
 #!~~QUEUE TEMPLATE~~!#
 #elif [ "$USE_MY_QUEUE" = "true" ]; then
 #	if [ $MAX_PARALLEL -gt 0 ]; then 

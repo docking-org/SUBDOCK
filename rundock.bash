@@ -105,7 +105,7 @@ rm $JOB_DIR/dockfiles/INDOCK
 
 # import restart marker, if it exists
 # tells this script to ignore SIGUSR1 interrupts
-trap '' SIGUSR1
+# trap '' SIGUSR1
 
 if [ -f $OUTPUT/restart ]; then
 	cp $OUTPUT/restart $JOB_DIR/working/restart
@@ -140,7 +140,7 @@ function cleanup {
 trap cleanup EXIT
 
 pushd $JOB_DIR
-$DOCKEXEC # this will produce an OUTDOCK with the version number
+$DOCKEXEC 2>/dev/null # this will produce an OUTDOCK with the version number
 vers="3.7"
 if [ -z "$(head -n 1 OUTDOCK | grep 3.7)" ]; then
 	vers="3.8"
@@ -182,7 +182,9 @@ python3 $FIXINDOCK_SCRIPT $DOCKFILES/INDOCK $JOB_DIR/dockfiles/INDOCK
 TARSTREAM_SCRIPT=$JOB_DIR/tarstream.py
 printf "
 #!/bin/python3
-import tarfile, sys, time, os, gzip
+import tarfile, sys, time, os, gzip, signal
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+signal.signal(signal.SIGUSR1, signal.SIG_IGN)
 for filename in sys.argv[1:]:
 	tfile = tarfile.open(filename, 'r:gz')
 	for t in tfile:
@@ -215,16 +217,28 @@ log "starting DOCK vers=$vers"
 		fi
 	fi
 ) | env time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/dockfiles/INDOCK &
-dockpid=$!
+dockppid=$!
+echo $dockppid
+# find actual DOCK PID by grepping for our executable in ps output, as well as the returned PID (which should be a parent to the actual DOCK process)
+dockpid=$(ps -ef | awk '{print $8 "\t" $2 "\t" $3}' | grep $dockppid | grep $DOCKEXEC | awk '{print $2}')
+echo $dockpid
+# debugging stuff
+#ps -ef | grep $dockpid
+#ps -ef | grep $(whoami) | grep $DOCKEXEC
 
 function notify_dock {
-	echo "notifying dock!"
-	kill -10 $dockpid
+	log "notifying dock!"
+	kill -USR1 $dockpid
 }
 
+#if [ "$USE_PARALLEL" = "true" ]; then # --timeout argument for parallel sends SIGTERM, not SIGUSR1
+#	trap notify_dock SIGTERM
+#else
 trap notify_dock SIGUSR1
+#fi
 
-wait $dockpid
+# slurm (or maybe just bash?) only lets us wait on direct children of this shell
+wait $dockppid
 sleep 5 # bash script seems to jump the gun and start cleanup prematurely when DOCK is interrupted. This is stupid but effective at preventing this
 
 # don't feel like editing DOCK src to change the exit code generated on interrupt, instead grep OUTDOCK for the telltale message
@@ -235,6 +249,6 @@ log "finished!"
 popd > /dev/null 2>&1
 
 if [ $sigusr1 -ne 0 ]; then
-	echo "s_rt limit reached!"
+	echo "time limit reached!"
 fi
 exit 0
