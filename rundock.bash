@@ -142,15 +142,20 @@ function cleanup {
 		log "detected null result! your files may not exist or there was an error reading them"
 		rm $JOB_DIR/working/*
 	fi
-	if [ "$complet" = "0" ] && [ "$sigusr1" -ne 0 ]; then
+	if [ "$complet" = "0" ] && ! [ "$sigusr1" -ne 0 ]; then
 		log "detected incomplete result!"
 		OUTPUT_SUFFIX=_incomplete
 	fi
-	if ! [ "$sigusr1" -ne 0 ]; then
+	if [ "$sigusr1" -ne 0 ]; then
 		log "detected interrupt signal was received in OUTDOCK"
 	fi
+	#echo n=$nullres c=$complet s=$sigusr1
         #nout=$(ls $OUTPUT | grep OUTDOCK | wc -l)
 	nout=$RESUBMIT_COUNT
+	if ! [ -f $OUTPUT/OUTDOCK.0 ]; then
+		nout=0 # if we haven't had a successful run yet, name it "0" regardless of RESUBMIT_COUNT, bloody confusing I know
+		# otherwise SUBDOCK isn't quite sure if we've started/completed the run w/o listing contents of each output directory
+	fi
 
         #if [ $nout -ne 0 ] && ! [ -f $OUTPUT/restart ]; then
         #        log "Something seems wrong, my output is already full but has no restart marker. Removing items present in output and replacing with my results."
@@ -158,6 +163,8 @@ function cleanup {
         #        nout=0
         #fi
 
+	#tail $JOB_DIR/working/OUTDOCK
+	#ls -l $JOB_DIR/working
         cp $JOB_DIR/working/OUTDOCK $OUTPUT/OUTDOCK$OUTPUT_SUFFIX.$nout
         cp $JOB_DIR/working/test.mol2.gz $OUTPUT/test.mol2.gz$OUTPUT_SUFFIX.$nout
 
@@ -224,11 +231,11 @@ signal.signal(signal.SIGUSR1, signal.SIG_IGN)
 for filename in sys.argv[1:]:
 	if filename.startswith('http://') or filename.startswith('https://'):
 		fdobj = urlopen(filename)
-		fdobj.tell = lambda : 0 # lol
+		#fdobj.tell = lambda : 0 # lol
 	else:
 		fdjob = open(filename, 'rb')
 	try:
-		with fdobj, tarfile.open(mode='r:gz', fileobj=fdobj) as tfile:
+		with fdobj, tarfile.open(mode='r|gz', fileobj=fdobj) as tfile:
 			for t in tfile:
 				f = tfile.extractfile(t)
 				if not f or not (t.name.endswith('db2.gz') or t.name.endswith('db2')):
@@ -285,7 +292,7 @@ trap notify_dock SIGUSR1
 #fi
 
 # slurm (or maybe just bash?) only lets us wait on direct children of this shell
-while sleep 5 && [ -z "$(kill -0 $dockpid 2>&1)" ]; do
+while sleep 5 && [ -z "$(kill -0 $dockppid 2>&1)" ]; do
 	# protect people from this issue with tempconf stuff here
 	footgun=$(tail OUTDOCK | grep "Warning. tempconf" | wc -l)
 	if [ $footgun -gt 0 ]; then
@@ -302,8 +309,8 @@ if [ $footgun -gt 0 ]; then
 	echo "this problematic OUTDOCK was removed to save disk space. https://wiki.docking.org/index.php?title=SUBDOCK_DOCK3.8#Mixing_DOCK_3.7_and_DOCK_3.8_-_known_problems" > OUTDOCK
 	echo "dockexec=$DOCKEXEC" >> OUTDOCK
 fi
-#wait $dockppid
-#sleep 5 # bash script seems to jump the gun and start cleanup prematurely when DOCK is interrupted. This is stupid but effective at preventing this
+wait $dockppid
+sleep 5 # bash script seems to jump the gun and start cleanup prematurely when DOCK is interrupted. This is stupid but effective at preventing this
 
 # don't feel like editing DOCK src to change the exit code generated on interrupt, instead grep OUTDOCK for the telltale message
 #sigusr1=`tail OUTDOCK | grep "interrupt signal detected since last ligand- initiating clean exit & save" | wc -l`
