@@ -155,6 +155,9 @@ function cleanup {
 	if ! [ -f $OUTPUT/OUTDOCK.0 ]; then
 		nout=0 # if we haven't had a successful run yet, name it "0" regardless of RESUBMIT_COUNT, bloody confusing I know
 		# otherwise SUBDOCK isn't quite sure if we've started/completed the run w/o listing contents of each output directory
+		# make note of this scruple here
+		echo "OUTDOCK.0 is OUTDOCK.$RESUBMIT_COUNT" > $OUTPUT/note
+		# I *would* make a symbolic link, but then analysis scripts might double count the files
 	fi
 
         #if [ $nout -ne 0 ] && ! [ -f $OUTPUT/restart ]; then
