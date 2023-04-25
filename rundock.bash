@@ -45,7 +45,7 @@ elif [ "$USE_DB2" = "true" ]; then
 fi
 TASK_ID_ACT=$(head -n $TASK_ID $EXPORT_DEST/joblist.$RESUBMIT_COUNT | tail -n 1)
 offset=$((batchsize*TASK_ID_ACT))
-echo $offset $batchsize
+#echo $offset $batchsize
 INPUT_FILES=$(head -n $offset $EXPORT_DEST/file_list | tail -n $batchsize)
 
 # log information about this job
@@ -86,20 +86,20 @@ log INPUT_FILES=$INPUT_FILES
 log JOB_DIR=$JOB_DIR
 
 # support http/https links for files here
-_INPUT_FILES=""
-i=0
-mkdir -p $JOB_DIR/inet_files_cache
-for fs in $INPUT_FILES; do
-	if [[ "$fs" == "http://"* ]] || [[ "$fs" == "https://"* ]]; then
-		log downloading $fs
-		curl -o $JOB_DIR/inet_files_cache/$i $fs
-		_INPUT_FILES="$_INPUT_FILES $JOB_DIR/inet_files_cache/$i"
-	else
-		_INPUT_FILES="$_INPUT_FILES $fs"
-	fi
-	i=$((i+1))
-done
-INPUT_FILES=$_INPUT_FILES
+#_INPUT_FILES=""
+#i=0
+#mkdir -p $JOB_DIR/inet_files_cache
+#for fs in $INPUT_FILES; do
+#	if [[ "$fs" == "http://"* ]] || [[ "$fs" == "https://"* ]]; then
+#		log downloading $fs
+#		curl -o $JOB_DIR/inet_files_cache/$i $fs
+#		_INPUT_FILES="$_INPUT_FILES $JOB_DIR/inet_files_cache/$i"
+#	else
+#		_INPUT_FILES="$_INPUT_FILES $fs"
+#	fi
+#	i=$((i+1))
+#done
+#INPUT_FILES=$_INPUT_FILES
 		
 # bring directories into existence
 mkdir -p $JOB_DIR/working
@@ -108,7 +108,7 @@ mkdir -p $OUTPUT
 chmod -R 777 $OUTPUT
 
 mkdir $JOB_DIR/dockfiles
-pushd $DOCKFILES
+pushd $DOCKFILES 2>/dev/null 1>&2
 for f in $(find .); do
 	[ "$f" = '.' ] && continue
 	fp=$PWD/$f
@@ -116,7 +116,7 @@ for f in $(find .); do
 	mkdir -p $(dirname $jp)
 	ln -s $fp $jp
 done
-popd
+popd 2>/dev/null 1>&2
 rm $JOB_DIR/dockfiles/INDOCK
 
 # import restart marker, if it exists
@@ -155,14 +155,14 @@ function cleanup {
 # setting this trap is good, as otherwise an error might interrupt the cleanup or abort the program too early
 trap cleanup EXIT
 
-pushd $JOB_DIR
-$DOCKEXEC 2>/dev/null # this will produce an OUTDOCK with the version number
+pushd $JOB_DIR 2>/dev/null 1>&2
+$DOCKEXEC 2>/dev/null 1>&2 # this will produce an OUTDOCK with the version number
 vers="3.7"
 if [ -z "$(head -n 1 OUTDOCK | grep 3.7)" ]; then
 	vers="3.8"
 fi
 rm OUTDOCK
-popd
+popd 2>/dev/null 1>&2
 
 FIXINDOCK_SCRIPT=$JOB_DIR/fixindock.py
 printf "
@@ -199,18 +199,30 @@ TARSTREAM_SCRIPT=$JOB_DIR/tarstream.py
 printf "
 #!/bin/python3
 import tarfile, sys, time, os, gzip, signal
+from urllib.request import urlopen
 signal.signal(signal.SIGTERM, signal.SIG_IGN)
 signal.signal(signal.SIGUSR1, signal.SIG_IGN)
 for filename in sys.argv[1:]:
-	tfile = tarfile.open(filename, 'r:gz')
-	for t in tfile:
-		f = tfile.extractfile(t)
-		if not f or not (t.name.endswith('db2.gz') or t.name.endswith('db2')):
-			continue
-		data = f.read()
-		if data[0:2] == bytes([31, 139]):
-			data = gzip.decompress(data)
-		sys.stdout.write(data.decode('utf-8'))
+	if filename.startswith('http://') or filename.startswith('https://'):
+		fdobj = urlopen(filename)
+		fdobj.tell = lambda : 0 # lol
+	else:
+		fdjob = open(filename, 'rb')
+	try:
+		with fdobj, tarfile.open(mode='r:gz', fileobj=fdobj) as tfile:
+			for t in tfile:
+				f = tfile.extractfile(t)
+				if not f or not (t.name.endswith('db2.gz') or t.name.endswith('db2')):
+					continue
+				data = f.read()
+				if data[0:2] == bytes([31, 139]):
+					data = gzip.decompress(data)
+				sys.stdout.write(data.decode('utf-8'))
+	except BrokenPipeError:
+		# probably means DOCK was interrupted by timeout or crashed
+		# printing this error message just clutters up the log, so swallow it
+		# it can be determined if DOCK was interrupted or crashed from other markers
+		pass
 sys.stdout.close()" > $TARSTREAM_SCRIPT
 
 pushd $JOB_DIR/working > /dev/null 2>&1
@@ -232,18 +244,18 @@ log "starting DOCK vers=$vers"
 			zcat -f $INPUT_FILES
 		fi
 	fi
-) | env time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/dockfiles/INDOCK &
+) | env time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/dockfiles/INDOCK 2>/dev/null &
 dockppid=$!
-echo $dockppid
+#echo $dockppid
 # find actual DOCK PID by grepping for our executable in ps output, as well as the returned PID (which should be a parent to the actual DOCK process)
 dockpid=$(ps -ef | awk '{print $8 "\t" $2 "\t" $3}' | grep $dockppid | grep $DOCKEXEC | awk '{print $2}')
-echo $dockpid
+#echo $dockpid
 # debugging stuff
 #ps -ef | grep $dockpid
 #ps -ef | grep $(whoami) | grep $DOCKEXEC
 
 function notify_dock {
-	log "notifying dock!"
+	log "time limit reached- notifying dock!"
 	kill -USR1 $dockpid
 }
 
@@ -259,12 +271,20 @@ sleep 5 # bash script seems to jump the gun and start cleanup prematurely when D
 
 # don't feel like editing DOCK src to change the exit code generated on interrupt, instead grep OUTDOCK for the telltale message
 sigusr1=`tail OUTDOCK | grep "interrupt signal detected since last ligand- initiating clean exit & save" | wc -l`
+complet=`tail OUTDOCK | grep "close the file" | wc -l`
+nullres=`tail OUTDOCK | grep "total number of hierarchies" | awk '{print $5}'` 
 
+if [ "$nullres" = "0" ]; then
+	log "detected null result! your files may not exist or there was an error reading them"
+	rm *
+fi
+
+log sigusr1=$sigusr1 complete=$complet nullres=$nullres
 log "finished!"
 
 popd > /dev/null 2>&1
 
-if [ $sigusr1 -ne 0 ]; then
-	echo "time limit reached!"
-fi
+#if [ $sigusr1 -ne 0 ]; then
+#	echo "time limit reached!"
+#fi
 exit 0

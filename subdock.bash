@@ -196,6 +196,7 @@ if [ $RESUBMIT_COUNT -gt 0 ] && [ $USE_CACHED_SUBMIT_STATS = "true" ]; then
 	get_input_cmd="cat $EXPORT_DEST/joblist.$((RESUBMIT_COUNT-1))"
 fi
 
+nrestart=0
 for input in $($get_input_cmd); do
 	if [ $RESUBMIT_COUNT -eq 0 ]; then # first run don't bother checking file existence
 		echo $input
@@ -210,10 +211,11 @@ for input in $($get_input_cmd); do
 	elif [ -f $EXPORT_DEST/$input/OUTDOCK.0 ] && [ -f $EXPORT_DEST/$input/restart ]; then
 		echo $input
 		njobs=$((njobs+1))
+		nrestart=$((nrestart+1))
 	fi
 done > $EXPORT_DEST/joblist.$RESUBMIT_COUNT
 
-echo "submitting $njobs out of $input jobs over $n_input_tot files. $((input-njobs)) already complete"
+echo "submitting $njobs out of $input jobs over $n_input_tot files. $((input-njobs)) already complete, $((nrestart)) partially complete"
 
 [ -z $QSUB_EXEC ] && QSUB_EXEC=qsub
 [ -z $SBATCH_EXEC ] && SBATCH_EXEC=sbatch
