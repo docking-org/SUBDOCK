@@ -274,6 +274,7 @@ echo "submitting jobs"
 SLURM_LOG_ARGS="-o $EXPORT_DEST/logs/%a.out -e $EXPORT_DEST/logs/%a.err"
 SGE_LOG_ARGS="-o $EXPORT_DEST/logs -e $EXPORT_DEST/logs"
 USE_PARALLEL_ARGS="$USE_PARALLEL_ARGS --termseq USR1,10000,KILL,25" # USR1, wait 10s, then kill, then 25ms and exit
+#USE_PARALLEL_ARGS="$USE_PARALLEL_ARGS --termseq TERM,10000,KILL,25" # uncomment for testing unexpected interrupts
 
 if [ "$USE_SGE" = "true" ]; then
 	[ $MAX_PARALLEL -gt 0 ] && USE_SGE_ARGS="$USE_SGE_ARGS -tc $MAX_PARALLEL"

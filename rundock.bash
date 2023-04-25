@@ -128,27 +128,46 @@ if [ -f $OUTPUT/restart ]; then
 fi
 
 # cleanup will:
-# 1. move results/restart marker to $OUTPUT (if no restart marker, remove it from $OUTPUT if present)
+# 1. determine if any errors have occurred during processing
+# 2. if no errors, move results/restart marker to $OUTPUT (if no restart marker & no errors, remove it from $OUTPUT if present)
 # 2. remove the working directory
 function cleanup {
-        nout=$(ls $OUTPUT | grep OUTDOCK | wc -l)
 
-        if [ $nout -ne 0 ] && ! [ -f $OUTPUT/restart ]; then
-                log "Something seems wrong, my output is already full but has no restart marker. Removing items present in output and replacing with my results."
-                rm $OUTPUT/*
-                nout=0
-        fi
+	# don't feel like editing DOCK src to change the exit code generated on interrupt, instead grep OUTDOCK for the telltale message
+	sigusr1=`tail $JOB_DIR/working/OUTDOCK | grep "interrupt signal detected since last ligand- initiating clean exit & save" | wc -l`
+	complet=`tail $JOB_DIR/working/OUTDOCK | grep "close the file" | wc -l`
+	nullres=`tail $JOB_DIR/working/OUTDOCK | grep "total number of hierarchies" | awk '{print $5}'`
 
-        cp -p $JOB_DIR/working/OUTDOCK $OUTPUT/OUTDOCK.$nout
-        cp -p $JOB_DIR/working/test.mol2.gz $OUTPUT/test.mol2.gz.$nout
+	if [ "$nullres" = "0" ]; then
+		log "detected null result! your files may not exist or there was an error reading them"
+		rm $JOB_DIR/working/*
+	fi
+	if [ "$complet" = "0" ] && [ "$sigusr1" = "0" ]; then
+		log "detected incomplete result!"
+		OUTPUT_SUFFIX=_incomplete
+	fi
+	if ! [ "$sigusr1" = "0" ]; then
+		log "detected interrupt signal was received in OUTDOCK"
+	fi
+        #nout=$(ls $OUTPUT | grep OUTDOCK | wc -l)
+	nout=$RESUBMIT_COUNT
+
+        #if [ $nout -ne 0 ] && ! [ -f $OUTPUT/restart ]; then
+        #        log "Something seems wrong, my output is already full but has no restart marker. Removing items present in output and replacing with my results."
+        #        rm $OUTPUT/*
+        #        nout=0
+        #fi
+
+        cp $JOB_DIR/working/OUTDOCK $OUTPUT/OUTDOCK$OUTPUT_SUFFIX.$nout
+        cp $JOB_DIR/working/test.mol2.gz $OUTPUT/test.mol2.gz$OUTPUT_SUFFIX.$nout
 
         if [ -f $JOB_DIR/working/restart ]; then
                 mv $JOB_DIR/working/restart $OUTPUT/restart
-        elif [ -f $OUTPUT/restart ]; then
+        elif [ -f $OUTPUT/restart ] && ! [ "$complet" = "0" ] && ! [ "$nullres" = "0" ]; then
                 rm $OUTPUT/restart
         fi
 
-        rm -rf $JOB_DIR
+        rm -r $JOB_DIR
 }
 
 # on exit, clean up files etc.
@@ -266,20 +285,41 @@ trap notify_dock SIGUSR1
 #fi
 
 # slurm (or maybe just bash?) only lets us wait on direct children of this shell
-wait $dockppid
-sleep 5 # bash script seems to jump the gun and start cleanup prematurely when DOCK is interrupted. This is stupid but effective at preventing this
+while sleep 5 && [ -z "$(kill -0 $dockpid 2>&1)" ]; do
+	# protect people from this issue with tempconf stuff here
+	footgun=$(tail OUTDOCK | grep "Warning. tempconf" | wc -l)
+	if [ $footgun -gt 0 ]; then
+		log "footgun alert! tempconf message detected- you seem to be using a DOCK executable that isn't compatible with 3.8 ligands!"
+		log "see here: https://wiki.docking.org/index.php?title=SUBDOCK_DOCK3.8#Mixing_DOCK_3.7_and_DOCK_3.8_-_known_problems"
+		log "going to kill DOCK and exit"
+		kill -9 $dockpid
+	fi
+done
+
+# if test.mol2.gz was produced, I guess keep it around. get rid of OUTDOCK though
+if [ $footgun -gt 0 ]; then
+	rm OUTDOCK
+	echo "this problematic OUTDOCK was removed to save disk space. https://wiki.docking.org/index.php?title=SUBDOCK_DOCK3.8#Mixing_DOCK_3.7_and_DOCK_3.8_-_known_problems" > OUTDOCK
+	echo "dockexec=$DOCKEXEC" >> OUTDOCK
+fi
+#wait $dockppid
+#sleep 5 # bash script seems to jump the gun and start cleanup prematurely when DOCK is interrupted. This is stupid but effective at preventing this
 
 # don't feel like editing DOCK src to change the exit code generated on interrupt, instead grep OUTDOCK for the telltale message
-sigusr1=`tail OUTDOCK | grep "interrupt signal detected since last ligand- initiating clean exit & save" | wc -l`
-complet=`tail OUTDOCK | grep "close the file" | wc -l`
-nullres=`tail OUTDOCK | grep "total number of hierarchies" | awk '{print $5}'` 
+#sigusr1=`tail OUTDOCK | grep "interrupt signal detected since last ligand- initiating clean exit & save" | wc -l`
+#complet=`tail OUTDOCK | grep "close the file" | wc -l`
+#nullres=`tail OUTDOCK | grep "total number of hierarchies" | awk '{print $5}'` 
 
-if [ "$nullres" = "0" ]; then
-	log "detected null result! your files may not exist or there was an error reading them"
-	rm *
-fi
+#if [ "$nullres" = "0" ]; then
+#	log "detected null result! your files may not exist or there was an error reading them"
+#	rm *
+#fi
+#if [ $complet -eq 0 ]; then
+#	log "detected incomplete result!"
+#	OUTPUT_SUFFIX=.incomplete
+#fi
 
-log sigusr1=$sigusr1 complete=$complet nullres=$nullres
+#log sigusr1=$sigusr1 complete=$complet nullres=$nullres
 log "finished!"
 
 popd > /dev/null 2>&1
