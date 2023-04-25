@@ -134,7 +134,7 @@ fi
 function cleanup {
 
 	# don't feel like editing DOCK src to change the exit code generated on interrupt, instead grep OUTDOCK for the telltale message
-	sigusr1=`tail $JOB_DIR/working/OUTDOCK | grep "interrupt signal detected since last ligand- initiating clean exit & save" | wc -l`
+	sigusr1=`tail $JOB_DIR/working/OUTDOCK | grep "interrupt signal detected since last ligand" | wc -l`
 	complet=`tail $JOB_DIR/working/OUTDOCK | grep "close the file" | wc -l`
 	nullres=`tail $JOB_DIR/working/OUTDOCK | grep "total number of hierarchies" | awk '{print $5}'`
 
@@ -142,11 +142,11 @@ function cleanup {
 		log "detected null result! your files may not exist or there was an error reading them"
 		rm $JOB_DIR/working/*
 	fi
-	if [ "$complet" = "0" ] && [ "$sigusr1" = "0" ]; then
+	if [ "$complet" = "0" ] && [ "$sigusr1" -ne 0 ]; then
 		log "detected incomplete result!"
 		OUTPUT_SUFFIX=_incomplete
 	fi
-	if ! [ "$sigusr1" = "0" ]; then
+	if ! [ "$sigusr1" -ne 0 ]; then
 		log "detected interrupt signal was received in OUTDOCK"
 	fi
         #nout=$(ls $OUTPUT | grep OUTDOCK | wc -l)
