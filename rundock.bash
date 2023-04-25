@@ -45,7 +45,6 @@ elif [ "$USE_DB2" = "true" ]; then
 fi
 TASK_ID_ACT=$(head -n $TASK_ID $EXPORT_DEST/joblist.$RESUBMIT_COUNT | tail -n 1)
 offset=$((batchsize*TASK_ID_ACT))
-#echo $offset $batchsize
 INPUT_FILES=$(head -n $offset $EXPORT_DEST/file_list | tail -n $batchsize)
 
 # log information about this job
@@ -56,17 +55,14 @@ log INPUT_SOURCE=$INPUT_SOURCE
 log DOCKFILES=$DOCKFILES
 log DOCKEXEC=$DOCKEXEC
 log SHRTCACHE=$SHRTCACHE
-log LONGCACHE=$LONGCACHE
 log JOB_ID=$JOB_ID
-log SGE_TASK_ID=$SGE_TASK_ID
-log SLURM_ARRAY_TASK_ID=$SLURM_ARRAY_TASK_ID
 log TASK_ID=$TASK_ID
 log TASK_ID_ACT=$TASK_ID_ACT
 
 # validate required environmental variables
 first=
 fail=
-for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC SHRTCACHE LONGCACHE JOB_ID TASK_ID RESUBMIT_COUNT; do
+for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC SHRTCACHE JOB_ID TASK_ID RESUBMIT_COUNT; do
   if [ -z ${!var} ]; then
     if [ -z $first ]; then
       echo "the following required parameters are not defined: "
@@ -84,28 +80,10 @@ OUTPUT=${EXPORT_DEST}/$TASK_ID_ACT
 log OUTPUT=$OUTPUT
 log INPUT_FILES=$INPUT_FILES
 log JOB_DIR=$JOB_DIR
-
-# support http/https links for files here
-#_INPUT_FILES=""
-#i=0
-#mkdir -p $JOB_DIR/inet_files_cache
-#for fs in $INPUT_FILES; do
-#	if [[ "$fs" == "http://"* ]] || [[ "$fs" == "https://"* ]]; then
-#		log downloading $fs
-#		curl -o $JOB_DIR/inet_files_cache/$i $fs
-#		_INPUT_FILES="$_INPUT_FILES $JOB_DIR/inet_files_cache/$i"
-#	else
-#		_INPUT_FILES="$_INPUT_FILES $fs"
-#	fi
-#	i=$((i+1))
-#done
-#INPUT_FILES=$_INPUT_FILES
 		
 # bring directories into existence
 mkdir -p $JOB_DIR/working
-
 mkdir -p $OUTPUT
-chmod -R 777 $OUTPUT
 
 mkdir $JOB_DIR/dockfiles
 pushd $DOCKFILES 2>/dev/null 1>&2
@@ -120,9 +98,6 @@ popd 2>/dev/null 1>&2
 rm $JOB_DIR/dockfiles/INDOCK
 
 # import restart marker, if it exists
-# tells this script to ignore SIGUSR1 interrupts
-# trap '' SIGUSR1
-
 if [ -f $OUTPUT/restart ]; then
 	cp $OUTPUT/restart $JOB_DIR/working/restart
 fi
@@ -149,8 +124,6 @@ function cleanup {
 	if [ "$sigusr1" -ne 0 ]; then
 		log "detected interrupt signal was received in OUTDOCK"
 	fi
-	#echo n=$nullres c=$complet s=$sigusr1
-        #nout=$(ls $OUTPUT | grep OUTDOCK | wc -l)
 	nout=$RESUBMIT_COUNT
 	if ! [ -f $OUTPUT/OUTDOCK.0 ]; then
 		nout=0 # if we haven't had a successful run yet, name it "0" regardless of RESUBMIT_COUNT, bloody confusing I know
@@ -160,14 +133,6 @@ function cleanup {
 		# I *would* make a symbolic link, but then analysis scripts might double count the files
 	fi
 
-        #if [ $nout -ne 0 ] && ! [ -f $OUTPUT/restart ]; then
-        #        log "Something seems wrong, my output is already full but has no restart marker. Removing items present in output and replacing with my results."
-        #        rm $OUTPUT/*
-        #        nout=0
-        #fi
-
-	#tail $JOB_DIR/working/OUTDOCK
-	#ls -l $JOB_DIR/working
         cp $JOB_DIR/working/OUTDOCK $OUTPUT/OUTDOCK$OUTPUT_SUFFIX.$nout
         cp $JOB_DIR/working/test.mol2.gz $OUTPUT/test.mol2.gz$OUTPUT_SUFFIX.$nout
 
@@ -275,27 +240,18 @@ log "starting DOCK vers=$vers"
 	fi
 ) | env time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/dockfiles/INDOCK 2>/dev/null &
 dockppid=$!
-#echo $dockppid
 # find actual DOCK PID by grepping for our executable in ps output, as well as the returned PID (which should be a parent to the actual DOCK process)
 dockpid=$(ps -ef | awk '{print $8 "\t" $2 "\t" $3}' | grep $dockppid | grep $DOCKEXEC | awk '{print $2}')
-#echo $dockpid
-# debugging stuff
-#ps -ef | grep $dockpid
-#ps -ef | grep $(whoami) | grep $DOCKEXEC
 
 function notify_dock {
 	log "time limit reached- notifying dock!"
 	kill -USR1 $dockpid
 }
 
-#if [ "$USE_PARALLEL" = "true" ]; then # --timeout argument for parallel sends SIGTERM, not SIGUSR1
-#	trap notify_dock SIGTERM
-#else
 trap notify_dock SIGUSR1
-#fi
 
-# slurm (or maybe just bash?) only lets us wait on direct children of this shell
-while sleep 5 && [ -z "$(kill -0 $dockppid 2>&1)" ]; do
+sleeptime=2
+while sleep $sleeptime && [ -z "$(kill -0 $dockppid 2>&1)" ]; do
 	# protect people from this issue with tempconf stuff here
 	footgun=$(tail OUTDOCK | grep "Warning. tempconf" | wc -l)
 	if [ $footgun -gt 0 ]; then
@@ -304,6 +260,7 @@ while sleep 5 && [ -z "$(kill -0 $dockppid 2>&1)" ]; do
 		log "going to kill DOCK and exit"
 		kill -9 $dockpid
 	fi
+	sleeptime=5 # wait 2 seconds at first such that if the footgun issue arises, we don't give the process too much time to write out to disk. then wait 5 for subsequent loops
 done
 
 # if test.mol2.gz was produced, I guess keep it around. get rid of OUTDOCK though
@@ -315,26 +272,8 @@ fi
 wait $dockppid
 sleep 5 # bash script seems to jump the gun and start cleanup prematurely when DOCK is interrupted. This is stupid but effective at preventing this
 
-# don't feel like editing DOCK src to change the exit code generated on interrupt, instead grep OUTDOCK for the telltale message
-#sigusr1=`tail OUTDOCK | grep "interrupt signal detected since last ligand- initiating clean exit & save" | wc -l`
-#complet=`tail OUTDOCK | grep "close the file" | wc -l`
-#nullres=`tail OUTDOCK | grep "total number of hierarchies" | awk '{print $5}'` 
-
-#if [ "$nullres" = "0" ]; then
-#	log "detected null result! your files may not exist or there was an error reading them"
-#	rm *
-#fi
-#if [ $complet -eq 0 ]; then
-#	log "detected incomplete result!"
-#	OUTPUT_SUFFIX=.incomplete
-#fi
-
-#log sigusr1=$sigusr1 complete=$complet nullres=$nullres
 log "finished!"
 
 popd > /dev/null 2>&1
 
-#if [ $sigusr1 -ne 0 ]; then
-#	echo "time limit reached!"
-#fi
 exit 0

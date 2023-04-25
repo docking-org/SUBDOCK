@@ -1,11 +1,4 @@
 #!/bin/bash
-# req:
-# EXPORT_DEST
-# INPUT_SOURCE
-# DOCKFILES
-# DOCKEXEC
-# SHRTCACHE
-# LONGCACHE
 
 BINDIR=$(dirname $0)
 BINDIR=${BINDIR-.}
@@ -131,8 +124,7 @@ fi
 
 echo "=================addtl job configuration================="
 exists_warning MAX_PARALLEL "max jobs allowed to run in parallel" "-1"
-exists_warning SHRTCACHE "temporary local storage for job files" /scratch
-exists_warning LONGCACHE "longer term storage for files shared between jobs" /scratch
+exists_warning SHRTCACHE "temporary local storage for job files" /dev/shm
 
 echo "=================miscellaneous================="
 exists_warning SUBMIT_WAIT_TIME "how many seconds to wait before submitting" 5
@@ -143,17 +135,6 @@ if [ $failed -eq 1 ]; then
 	exit 1
 fi
 
-# old dummy-proofing code, not needed anymore as we programmatically fix this mistake now
-#ligand_atom_file=$(grep -w ligand_atom_file $DOCKFILES/INDOCK | awk '{print $2}')
-#if [ "$ligand_atom_file" != "split_database_index" ]; then
-#	echo "ligand_atom_file option in INDOCK is [$ligand_atom_file], should be [split_database_index]. Please change and try again."
-#	exit 1
-#fi
-# this isn't used any more, used to be to keep track of dockfiles versions
-#if [ -w $DOCKFILES ]; then
-#	cat $DOCKFILES/* | sha1sum | awk '{print $1}' > $DOCKFILES/.shasum
-#fi
-
 mkdir -p $EXPORT_DEST/logs
 n=1
 njobs=0
@@ -163,7 +144,6 @@ function handle_input_source {
 	if [ -d $INPUT_SOURCE ]; then
 		printf "" > $EXPORT_DEST/file_list
 		for ext in $exts; do
-#		echo	find $INPUT_SOURCE -name '*.'"$ext" -type f | sort >> $EXPORT_DEST/file_list 1>&2
 			find $INPUT_SOURCE -name '*.'"$ext" -type f | sort >> $EXPORT_DEST/file_list
 		done
 	else
@@ -215,6 +195,7 @@ for input in $($get_input_cmd); do
 	fi
 done > $EXPORT_DEST/joblist.$RESUBMIT_COUNT
 
+echo "attempt number $RESUBMIT_COUNT:"
 echo "submitting $njobs out of $input jobs over $n_input_tot files. $((input-njobs)) already complete, $((nrestart)) partially complete"
 
 [ -z $QSUB_EXEC ] && QSUB_EXEC=qsub
@@ -224,12 +205,11 @@ echo "submitting $njobs out of $input jobs over $n_input_tot files. $((input-njo
 #!~~QUEUE TEMPLATE~~!#
 #[ -z $MY_QUEUE_EXEC ] && MY_QUEUE_EXEC=something
 
-
 echo "!!! save the following to its own file for a re-usable superscript !!!"
 echo "==============================================================="
 echo "#!/bin/bash"
 for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC \
- SHRTCACHE LONGCACHE SHRTCACHE_USE_ENV \
+ SHRTCACHE SHRTCACHE_USE_ENV \
  USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE\
  USE_SLURM USE_SLURM_ARGS USE_SGE USE_SGE_ARGS USE_PARALLEL USE_PARALLEL_ARGS MAX_PARALLEL\
  QSUB_EXEC SBATCH_EXEC PARALLEL_EXEC \
@@ -243,7 +223,7 @@ SGE_ENV_ARGS=""
 SLURM_ENV_ARGS=""
 # pass in rundock specific vars here- passing in the subdock specific ones as well runs into issue, mostly because of USE_SGE_ARGS and the like having non-standard formatting (damn whitespace...)
 for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC \
- SHRTCACHE LONGCACHE SHRTCACHE_USE_ENV \
+ SHRTCACHE SHRTCACHE_USE_ENV \
  USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE \
  USE_SLURM USE_SGE USE_PARALLEL \
  RESUBMIT_COUNT; do
