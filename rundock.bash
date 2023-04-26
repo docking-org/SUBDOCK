@@ -29,6 +29,9 @@ elif [ "$USE_SLURM" = "true" ]; then
 elif [ "$USE_SGE" = "true" ]; then
 	JOB_ID=$JOB_ID
 	TASK_ID=$SGE_TASK_ID
+elif [ "$USE_CHARITY" = "true" ]; then
+	JOB_ID=something
+	TASK_ID=1
 #!~~QUEUE TEMPLATE~~!#
 # add method for setting TASK_ID and JOB_ID values for your queueing system
 #elif [ "$USE_MY_QUEUE" = "true" ]; then
@@ -43,9 +46,22 @@ if [ "$USE_DB2_TGZ" = "true" ]; then
 elif [ "$USE_DB2" = "true" ]; then
 	batchsize=${USE_DB2_BATCH_SIZE-100}
 fi
-TASK_ID_ACT=$(head -n $TASK_ID $EXPORT_DEST/joblist.$RESUBMIT_COUNT | tail -n 1)
-offset=$((batchsize*TASK_ID_ACT))
-INPUT_FILES=$(head -n $offset $EXPORT_DEST/file_list | tail -n $batchsize)
+
+# charity engine has special overrides
+if [ $USE_CHARITY = "true" ]; then
+	DOCKFILES=/local/input/dockfiles
+	tar -C /local/input -xf /local/input/dockfiles.tgz
+	DOCKEXEC=/bin/dock64
+	INPUT_SOURCE=/local/input
+	EXPORT_DEST=/local/output
+	USE_DB2_TGZ="true"
+	batchsize=1
+	INPUT_FILES=$(find /local/input -name '*.db2.tgz')
+else
+	TASK_ID_ACT=$(head -n $TASK_ID $EXPORT_DEST/joblist.$RESUBMIT_COUNT | tail -n 1)
+	offset=$((batchsize*TASK_ID_ACT))
+	INPUT_FILES=$(head -n $offset $EXPORT_DEST/file_list | tail -n $batchsize)
+fi
 
 # log information about this job
 log host=$(hostname)

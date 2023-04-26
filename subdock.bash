@@ -87,6 +87,8 @@ exists_warning USE_SGE "use sge" "false"
 exists_warning USE_SGE_ARGS "addtl arguments for SGE qsub command" ""
 exists_warning USE_PARALLEL "use GNU parallel" "false"
 exists_warning USE_PARALLEL_ARGS "addtl arguments for GNU parallel command" ""
+exists_warning USE_CHARITY "use charity engine" "false"
+exists_warning CHARITY_AUTHKEY "authentication key for charity engine" ""
 
 #!~~QUEUE TEMPLATE~~!#
 #exists_warning USE_MY_QUEUE "use MY_QUEUE" "false"
@@ -201,6 +203,7 @@ echo "submitting $njobs out of $input jobs over $n_input_tot files. $((input-njo
 [ -z $QSUB_EXEC ] && QSUB_EXEC=qsub
 [ -z $SBATCH_EXEC ] && SBATCH_EXEC=sbatch
 [ -z $PARALLEL_EXEC ] && PARALLEL_EXEC=parallel
+[ -z $CHARITY_EXEC ] && CHARITY_EXEC=ce-cli
 
 #!~~QUEUE TEMPLATE~~!#
 #[ -z $MY_QUEUE_EXEC ] && MY_QUEUE_EXEC=something
@@ -274,6 +277,26 @@ elif [ "$USE_SLURM" = "true" ]; then
 echo	$SBATCH_EXEC $USE_SLURM_ARGS --signal=B:USR1@10 $SLURM_ENV_ARGS $USE_SLURM_ARGS $SLURM_LOG_ARGS $RUNDOCK_PATH
 	$SBATCH_EXEC $USE_SLURM_ARGS --signal=B:USR1@10 $SLURM_ENV_ARGS $USE_SLURM_ARGS $SLURM_LOG_ARGS $RUNDOCK_PATH
 
+elif [ "$USE_CHARITY" = "true" ]; then
+	[ $MAX_PARALLEL -lt 1  ] && MAX_PARALLEL=1  && echo MAX_PARALLEL too small, defaulting to MAX_PARALLEL=1
+	[ $MAX_PARALLEL -gt 50 ] && MAX_PARALLEL=50 && echo MAX_PARALLEL too large, defaulting to MAX_PARALLEL=50
+	# check for errors etc.
+	if [ -z $CHARITY_AUTHKEY ]; then
+		echo "need an authentication key for charity!"
+		exit 1
+	elif ! [ $USE_DB2_TGZ = "true" ]; then
+		echo "must select USE_DB2_TGZ!"
+		exit 1
+	elif ! [ $USE_DB2_TGZ_BATCH_SIZE = 1 ]; then
+		echo "USE_DB2_TGZ_BATCH_SIZE must be 1!"
+		exit 1
+	fi
+	if ! [[ $DOCKFILES == *.tgz ]]; then
+		echo "creating ${DOCKFILES}.tgz"
+		tar -C $(dirname $DOCKFILES) -czf ${DOCKFILES}.tgz $DOCKFILES
+		DOCKFILES=${DOCKFILES}.tgz
+	fi
+	$PARALLEL_EXEC -j $MAX_PARALLEL -a $EXPORT_DEST/file_list $CHARITY_EXEC --app dockingorg/dock_ce:latest --env USE_CHARITY=true --commandline "bash /bin/rundock.bash" --auth $CHARITY_AUTHKEY --inputfile $DOCKFILES {} --outputdir $EXPORT_DEST/'%JOBKEY%'
 #!~~QUEUE TEMPLATE~~!#
 #elif [ "$USE_MY_QUEUE" = "true" ]; then
 #	if [ $MAX_PARALLEL -gt 0 ]; then 
