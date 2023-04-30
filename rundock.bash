@@ -1,14 +1,4 @@
 #!/bin/bash
-# req:
-# EXPORT_DEST
-# INPUT_SOURCE
-# DOCKFILES
-# DOCKEXEC
-# SHRTCACHE
-# LONGCACHE
-# JOB_ID
-# TASK_ID
-
 
 function log {
 	echo "[$(date +%X)]: $@"
@@ -19,7 +9,6 @@ if [ -z $SHRTCACHE_USE_ENV ]; then
 else
 	SHRTCACHE=${!SHRTCACHE_USE_ENV}
 fi
-LONGCACHE=${LONGCACHE-/scratch}
 
 if [ "$USE_PARALLEL" = "true" ]; then
 	TASK_ID=$1
