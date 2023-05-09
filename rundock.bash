@@ -204,7 +204,7 @@ for filename in sys.argv[1:]:
 		fdobj = urlopen(filename)
 		#fdobj.tell = lambda : 0 # lol
 	else:
-		fdjob = open(filename, 'rb')
+		fdobj = open(filename, 'rb')
 	try:
 		with fdobj, tarfile.open(mode='r|gz', fileobj=fdobj) as tfile:
 			for t in tfile:
