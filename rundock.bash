@@ -1,14 +1,4 @@
 #!/bin/bash
-# req:
-# EXPORT_DEST
-# INPUT_SOURCE
-# DOCKFILES
-# DOCKEXEC
-# SHRTCACHE
-# LONGCACHE
-# JOB_ID
-# TASK_ID
-
 
 function log {
 	echo "[$(date +%X)]: $@"
@@ -19,7 +9,6 @@ if [ -z $SHRTCACHE_USE_ENV ]; then
 else
 	SHRTCACHE=${!SHRTCACHE_USE_ENV}
 fi
-LONGCACHE=${LONGCACHE-/scratch}
 
 if [ "$USE_PARALLEL" = "true" ]; then
 	TASK_ID=$1
@@ -29,6 +18,9 @@ elif [ "$USE_SLURM" = "true" ]; then
 elif [ "$USE_SGE" = "true" ]; then
 	JOB_ID=$JOB_ID
 	TASK_ID=$SGE_TASK_ID
+elif [ "$USE_CHARITY" = "true" ]; then
+	JOB_ID=something
+	TASK_ID=1
 #!~~QUEUE TEMPLATE~~!#
 # add method for setting TASK_ID and JOB_ID values for your queueing system
 #elif [ "$USE_MY_QUEUE" = "true" ]; then
@@ -43,9 +35,22 @@ if [ "$USE_DB2_TGZ" = "true" ]; then
 elif [ "$USE_DB2" = "true" ]; then
 	batchsize=${USE_DB2_BATCH_SIZE-100}
 fi
-offset=$((batchsize*TASK_ID))
-echo $offset $batchsize
-INPUT_FILES=$(head -n $offset $EXPORT_DEST/file_list | tail -n $batchsize)
+
+# charity engine has special overrides
+if [ $USE_CHARITY = "true" ]; then
+	DOCKFILES=/local/input/dockfiles
+	tar -C /local/input -xf /local/input/dockfiles.tgz
+	DOCKEXEC=/bin/dock64
+	INPUT_SOURCE=/local/input
+	EXPORT_DEST=/local/output
+	USE_DB2_TGZ="true"
+	batchsize=1
+	INPUT_FILES=$(find /local/input -name '*.db2.tgz')
+else
+	TASK_ID_ACT=$(head -n $TASK_ID $EXPORT_DEST/joblist.$RESUBMIT_COUNT | tail -n 1)
+	offset=$((batchsize*TASK_ID_ACT))
+	INPUT_FILES=$(head -n $offset $EXPORT_DEST/file_list | tail -n $batchsize)
+fi
 
 # log information about this job
 log host=$(hostname)
@@ -55,14 +60,14 @@ log INPUT_SOURCE=$INPUT_SOURCE
 log DOCKFILES=$DOCKFILES
 log DOCKEXEC=$DOCKEXEC
 log SHRTCACHE=$SHRTCACHE
-log LONGCACHE=$LONGCACHE
 log JOB_ID=$JOB_ID
 log TASK_ID=$TASK_ID
+log TASK_ID_ACT=$TASK_ID_ACT
 
 # validate required environmental variables
 first=
 fail=
-for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC SHRTCACHE LONGCACHE JOB_ID TASK_ID; do
+for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC SHRTCACHE JOB_ID TASK_ID RESUBMIT_COUNT; do
   if [ -z ${!var} ]; then
     if [ -z $first ]; then
       echo "the following required parameters are not defined: "
@@ -76,82 +81,87 @@ done
 
 JOB_DIR=${SHRTCACHE}/$(whoami)/${JOB_ID}_${TASK_ID}
 
-if ! [ "$USE_DB2" = "false" ]; then
-	OUTPUT=$EXPORT_DEST/$TASK_ID
-else
-	OUTPUT=${EXPORT_DEST}/$(sed "${TASK_ID}q;d" $EXPORT_DEST/joblist | awk '{print $2}')
-fi
+OUTPUT=${EXPORT_DEST}/$TASK_ID_ACT
 log OUTPUT=$OUTPUT
 log INPUT_FILES=$INPUT_FILES
 log JOB_DIR=$JOB_DIR
-
-LOG_OUT=${SHRTCACHE}/rundock_${JOB_ID}_${SGE_TASK_ID}.out
-LOG_ERR=${SHRTCACHE}/rundock_${JOB_ID}_${SGE_TASK_ID}.err
-
+		
 # bring directories into existence
 mkdir -p $JOB_DIR/working
-mkdir -p $DOCKFILES_TEMP
-
 mkdir -p $OUTPUT
-chmod -R 777 $OUTPUT
-
-#cp -a $DOCKFILES/. $DOCKFILES_TEMP
 
 mkdir $JOB_DIR/dockfiles
-pushd $DOCKFILES
+pushd $DOCKFILES 2>/dev/null 1>&2
 for f in $(find .); do
+	[ "$f" = '.' ] && continue
 	fp=$PWD/$f
 	jp=$JOB_DIR/dockfiles/$f
 	mkdir -p $(dirname $jp)
 	ln -s $fp $jp
 done
-popd
+popd 2>/dev/null 1>&2
 rm $JOB_DIR/dockfiles/INDOCK
 
 # import restart marker, if it exists
-# tells this script to ignore SIGUSR1 interrupts
-trap '' SIGUSR1
-
 if [ -f $OUTPUT/restart ]; then
 	cp $OUTPUT/restart $JOB_DIR/working/restart
 fi
 
 # cleanup will:
-# 1. move results/restart marker to $OUTPUT (if no restart marker, remove it from $OUTPUT if present)
+# 1. determine if any errors have occurred during processing
+# 2. if no errors, move results/restart marker to $OUTPUT (if no restart marker & no errors, remove it from $OUTPUT if present)
 # 2. remove the working directory
 function cleanup {
-        nout=$(ls $OUTPUT | grep OUTDOCK | wc -l)
 
-        if [ $nout -ne 0 ] && ! [ -f $OUTPUT/restart ]; then
-                log "Something seems wrong, my output is already full but has no restart marker. Removing items present in output and replacing with my results."
-                rm $OUTPUT/*
-                nout=0
-        fi
+	# don't feel like editing DOCK src to change the exit code generated on interrupt, instead grep OUTDOCK for the telltale message
+	sigusr1=`tail $JOB_DIR/working/OUTDOCK | grep "interrupt signal detected since last ligand" | wc -l`
+	complet=`tail $JOB_DIR/working/OUTDOCK | grep "close the file" | wc -l`
+	nullres=`tail $JOB_DIR/working/OUTDOCK | grep "total number of hierarchies" | awk '{print $5}'`
 
-        cp -p $JOB_DIR/working/OUTDOCK $OUTPUT/OUTDOCK.$nout
-        cp -p $JOB_DIR/working/test.mol2.gz $OUTPUT/test.mol2.gz.$nout
+	if [ "$nullres" = "0" ]; then
+		log "detected null result! your files may not exist or there was an error reading them"
+		rm $JOB_DIR/working/*
+	fi
+	if [ "$complet" = "0" ] && ! [ "$sigusr1" -ne 0 ]; then
+		log "detected incomplete result!"
+		OUTPUT_SUFFIX=_incomplete
+	fi
+	if [ "$sigusr1" -ne 0 ]; then
+		log "detected interrupt signal was received in OUTDOCK"
+	fi
+	nout=$RESUBMIT_COUNT
+	if ! [ -f $OUTPUT/OUTDOCK.0 ]; then
+		nout=0 # if we haven't had a successful run yet, name it "0" regardless of RESUBMIT_COUNT, bloody confusing I know
+		# otherwise SUBDOCK isn't quite sure if we've started/completed the run w/o listing contents of each output directory
+		# make note of this scruple here
+		echo "OUTDOCK.0 is OUTDOCK.$RESUBMIT_COUNT" > $OUTPUT/note
+		# I *would* make a symbolic link, but then analysis scripts might double count the files
+	fi
+
+        cp $JOB_DIR/working/OUTDOCK $OUTPUT/OUTDOCK$OUTPUT_SUFFIX.$nout
+        cp $JOB_DIR/working/test.mol2.gz $OUTPUT/test.mol2.gz$OUTPUT_SUFFIX.$nout
 
         if [ -f $JOB_DIR/working/restart ]; then
                 mv $JOB_DIR/working/restart $OUTPUT/restart
-        elif [ -f $OUTPUT/restart ]; then
+        elif [ -f $OUTPUT/restart ] && ! [ "$complet" = "0" ] && ! [ "$nullres" = "0" ]; then
                 rm $OUTPUT/restart
         fi
 
-        rm -rf $JOB_DIR
+        rm -r $JOB_DIR
 }
 
 # on exit, clean up files etc.
 # setting this trap is good, as otherwise an error might interrupt the cleanup or abort the program too early
 trap cleanup EXIT
 
-pushd $JOB_DIR
-$DOCKEXEC # this will produce an OUTDOCK with the version number
+pushd $JOB_DIR 2>/dev/null 1>&2
+$DOCKEXEC 2>/dev/null 1>&2 # this will produce an OUTDOCK with the version number
 vers="3.7"
 if [ -z "$(head -n 1 OUTDOCK | grep 3.7)" ]; then
 	vers="3.8"
 fi
 rm OUTDOCK
-popd
+popd 2>/dev/null 1>&2
 
 FIXINDOCK_SCRIPT=$JOB_DIR/fixindock.py
 printf "
@@ -187,17 +197,31 @@ python3 $FIXINDOCK_SCRIPT $DOCKFILES/INDOCK $JOB_DIR/dockfiles/INDOCK
 TARSTREAM_SCRIPT=$JOB_DIR/tarstream.py
 printf "
 #!/bin/python3
-import tarfile, sys, time, os, gzip
+import tarfile, sys, time, os, gzip, signal
+from urllib.request import urlopen
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+signal.signal(signal.SIGUSR1, signal.SIG_IGN)
 for filename in sys.argv[1:]:
-	tfile = tarfile.open(filename, 'r:gz')
-	for t in tfile:
-		f = tfile.extractfile(t)
-		if not f or not (t.name.endswith('db2.gz') or t.name.endswith('db2')):
-			continue
-		data = f.read()
-		if data[0:2] == bytes([31, 139]):
-			data = gzip.decompress(data)
-		sys.stdout.write(data.decode('utf-8'))
+	if filename.startswith('http://') or filename.startswith('https://'):
+		fdobj = urlopen(filename)
+		#fdobj.tell = lambda : 0 # lol
+	else:
+		fdjob = open(filename, 'rb')
+	try:
+		with fdobj, tarfile.open(mode='r|gz', fileobj=fdobj) as tfile:
+			for t in tfile:
+				f = tfile.extractfile(t)
+				if not f or not (t.name.endswith('db2.gz') or t.name.endswith('db2')):
+					continue
+				data = f.read()
+				if data[0:2] == bytes([31, 139]):
+					data = gzip.decompress(data)
+				sys.stdout.write(data.decode('utf-8'))
+	except BrokenPipeError:
+		# probably means DOCK was interrupted by timeout or crashed
+		# printing this error message just clutters up the log, so swallow it
+		# it can be determined if DOCK was interrupted or crashed from other markers
+		pass
 sys.stdout.close()" > $TARSTREAM_SCRIPT
 
 pushd $JOB_DIR/working > /dev/null 2>&1
@@ -219,27 +243,42 @@ log "starting DOCK vers=$vers"
 			zcat -f $INPUT_FILES
 		fi
 	fi
-) | /usr/bin/time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/dockfiles/INDOCK &
-dockpid=$!
+) | env time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/dockfiles/INDOCK 2>/dev/null &
+dockppid=$!
+# find actual DOCK PID by grepping for our executable in ps output, as well as the returned PID (which should be a parent to the actual DOCK process)
+dockpid=$(ps -ef | awk '{print $8 "\t" $2 "\t" $3}' | grep $dockppid | grep $DOCKEXEC | awk '{print $2}')
 
 function notify_dock {
-	echo "notifying dock!"
-	kill -10 $dockpid
+	log "time limit reached- notifying dock!"
+	kill -USR1 $dockpid
 }
 
 trap notify_dock SIGUSR1
 
-wait $dockpid
-sleep 5 # bash script seems to jump the gun and start cleanup prematurely when DOCK is interrupted. This is stupid but effective at preventing this
+sleeptime=2
+while sleep $sleeptime && [ -z "$(kill -0 $dockppid 2>&1)" ]; do
+	# protect people from this issue with tempconf stuff here
+	footgun=$(tail OUTDOCK | grep "Warning. tempconf" | wc -l)
+	if [ $footgun -gt 0 ]; then
+		log "footgun alert! tempconf message detected- you seem to be using a DOCK executable that isn't compatible with 3.8 ligands!"
+		log "see here: https://wiki.docking.org/index.php?title=SUBDOCK_DOCK3.8#Mixing_DOCK_3.7_and_DOCK_3.8_-_known_problems"
+		log "going to kill DOCK and exit"
+		kill -9 $dockpid
+	fi
+	sleeptime=5 # wait 2 seconds at first such that if the footgun issue arises, we don't give the process too much time to write out to disk. then wait 5 for subsequent loops
+done
 
-# don't feel like editing DOCK src to change the exit code generated on interrupt, instead grep OUTDOCK for the telltale message
-sigusr1=`tail OUTDOCK | grep "interrupt signal detected since last ligand- initiating clean exit & save" | wc -l`
+# if test.mol2.gz was produced, I guess keep it around. get rid of OUTDOCK though
+if [ $footgun -gt 0 ]; then
+	rm OUTDOCK
+	echo "this problematic OUTDOCK was removed to save disk space. https://wiki.docking.org/index.php?title=SUBDOCK_DOCK3.8#Mixing_DOCK_3.7_and_DOCK_3.8_-_known_problems" > OUTDOCK
+	echo "dockexec=$DOCKEXEC" >> OUTDOCK
+fi
+wait $dockppid
+sleep 5 # bash script seems to jump the gun and start cleanup prematurely when DOCK is interrupted. This is stupid but effective at preventing this
 
 log "finished!"
 
 popd > /dev/null 2>&1
 
-if [ $sigusr1 -ne 0 ]; then
-	echo "s_rt limit reached!"
-fi
 exit 0
