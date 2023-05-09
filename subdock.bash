@@ -293,8 +293,12 @@ elif [ "$USE_CHARITY" = "true" ]; then
 		exit 1
 	fi
 	if ! [[ $DOCKFILES == *.tgz ]]; then
-                echo "creating ${DOCKFILES}.tgz"
-                tar -C $(dirname $DOCKFILES) -czf ${DOCKFILES}.tgz $DOCKFILES
+		if ! [ -f ${DOCKFILES}.tgz ]; then
+			echo "creating ${DOCKFILES}.tgz"
+			pushd $(dirname $DOCKFILES) 1>&2 2>/dev/null
+			tar -czf ${DOCKFILES}.tgz $(basename $DOCKFILES)
+			popd 1>&2 2>/dev/null
+		fi
                 DOCKFILES=${DOCKFILES}.tgz
         fi
 echo    $PARALLEL_EXEC -j $MAX_PARALLEL -a $EXPORT_DEST/joblist.$RESUBMIT_COUNT -a $EXPORT_DEST/file_list $CHARITY_EXEC --debug true --app docker:dockingorg/dock_ce:latest --env RESUBMIT_COUNT=$RESUBMIT_COUNT USE_CHARITY=true --commandline "bash /bin/rundock.bash" --auth $CHARITY_AUTHKEY --inputfile $DOCKFILES {2} --outputdir $EXPORT_DEST/{1}

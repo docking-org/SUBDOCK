@@ -254,6 +254,7 @@ function notify_dock {
 trap notify_dock SIGUSR1
 
 sleeptime=2
+footgun=0
 while sleep $sleeptime && [ -z "$(kill -0 $dockppid 2>&1)" ]; do
 	# protect people from this issue with tempconf stuff here
 	footgun=$(tail OUTDOCK | grep "Warning. tempconf" | wc -l)
