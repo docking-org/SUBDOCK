@@ -98,6 +98,7 @@ n=0
 [ "$USE_SLURM" = "true" ] && n=$((n+1))
 [ "$USE_SGE" = "true" ] && n=$((n+1))
 [ "$USE_PARALLEL" = "true" ] && n=$((n+1))
+[ "$USE_CHARITY" = "true" ] && n=$((n+1))
 
 #!~~QUEUE TEMPLATE~~!#
 #[ "$USE_MY_QUEUE" = "true" ] && n=$((n+1))
@@ -187,7 +188,7 @@ for input in $($get_input_cmd); do
 		echo $input
 		njobs=$((njobs+1))
 	elif ! [ -f $EXPORT_DEST/$input/test.mol2.gz.0 ]; then
-		rm $EXPORT_DEST/$input/*
+		#rm $EXPORT_DEST/$input/*
 		echo $input
 		njobs=$((njobs+1))
 	elif [ -f $EXPORT_DEST/$input/OUTDOCK.0 ] && [ -f $EXPORT_DEST/$input/restart ]; then
@@ -292,11 +293,12 @@ elif [ "$USE_CHARITY" = "true" ]; then
 		exit 1
 	fi
 	if ! [[ $DOCKFILES == *.tgz ]]; then
-		echo "creating ${DOCKFILES}.tgz"
-		tar -C $(dirname $DOCKFILES) -czf ${DOCKFILES}.tgz $DOCKFILES
-		DOCKFILES=${DOCKFILES}.tgz
-	fi
-	$PARALLEL_EXEC -j $MAX_PARALLEL -a $EXPORT_DEST/file_list $CHARITY_EXEC --app dockingorg/dock_ce:latest --env USE_CHARITY=true --commandline "bash /bin/rundock.bash" --auth $CHARITY_AUTHKEY --inputfile $DOCKFILES {} --outputdir $EXPORT_DEST/'%JOBKEY%'
+                echo "creating ${DOCKFILES}.tgz"
+                tar -C $(dirname $DOCKFILES) -czf ${DOCKFILES}.tgz $DOCKFILES
+                DOCKFILES=${DOCKFILES}.tgz
+        fi
+echo    $PARALLEL_EXEC -j $MAX_PARALLEL -a $EXPORT_DEST/joblist.$RESUBMIT_COUNT -a $EXPORT_DEST/file_list $CHARITY_EXEC --debug true --app docker:dockingorg/dock_ce:latest --env RESUBMIT_COUNT=$RESUBMIT_COUNT USE_CHARITY=true --commandline "bash /bin/rundock.bash" --auth $CHARITY_AUTHKEY --inputfile $DOCKFILES {2} --outputdir $EXPORT_DEST/{1}
+        $PARALLEL_EXEC -j $MAX_PARALLEL -a $EXPORT_DEST/joblist.$RESUBMIT_COUNT -a $EXPORT_DEST/file_list $CHARITY_EXEC --debug true --app docker:dockingorg/dock_ce:latest --env RESUBMIT_COUNT=$RESUBMIT_COUNT USE_CHARITY=true --commandline "bash /bin/rundock.bash" --auth $CHARITY_AUTHKEY --inputfile $DOCKFILES {2} --outputdir $EXPORT_DEST/{1}
 #!~~QUEUE TEMPLATE~~!#
 #elif [ "$USE_MY_QUEUE" = "true" ]; then
 #	if [ $MAX_PARALLEL -gt 0 ]; then 

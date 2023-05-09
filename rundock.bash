@@ -90,17 +90,10 @@ log JOB_DIR=$JOB_DIR
 mkdir -p $JOB_DIR/working
 mkdir -p $OUTPUT
 
-mkdir $JOB_DIR/dockfiles
-pushd $DOCKFILES 2>/dev/null 1>&2
-for f in $(find .); do
-	[ "$f" = '.' ] && continue
-	fp=$PWD/$f
-	jp=$JOB_DIR/dockfiles/$f
-	mkdir -p $(dirname $jp)
-	ln -s $fp $jp
-done
-popd 2>/dev/null 1>&2
-rm $JOB_DIR/dockfiles/INDOCK
+# we need to create this symbolic link in a directory relative to where DOCK will run
+# the reason: fortran won't accept paths longer than 80 chars
+# thus, all paths to grid files etc should be formatted like ../dockfiles/* to sidestep this path limit
+ln -s $DOCKFILES $JOB_DIR/dockfiles
 
 # import restart marker, if it exists
 if [ -f $OUTPUT/restart ]; then
@@ -118,19 +111,24 @@ function cleanup {
 	complet=`tail $JOB_DIR/working/OUTDOCK | grep "close the file" | wc -l`
 	nullres=`tail $JOB_DIR/working/OUTDOCK | grep "total number of hierarchies" | awk '{print $5}'`
 
+	success=true
 	if [ "$nullres" = "0" ]; then
 		log "detected null result! your files may not exist or there was an error reading them"
 		rm $JOB_DIR/working/*
+		OUTPUT_SUFFIX=_nullres
+		success=false
 	fi
 	if [ "$complet" = "0" ] && ! [ "$sigusr1" -ne 0 ]; then
 		log "detected incomplete result!"
 		OUTPUT_SUFFIX=_incomplete
+		success=false
 	fi
 	if [ "$sigusr1" -ne 0 ]; then
 		log "detected interrupt signal was received in OUTDOCK"
 	fi
+
 	nout=$RESUBMIT_COUNT
-	if ! [ -f $OUTPUT/OUTDOCK.0 ]; then
+	if ! [ -f $OUTPUT/OUTDOCK.0 ] && [ "$success" = true ]; then
 		nout=0 # if we haven't had a successful run yet, name it "0" regardless of RESUBMIT_COUNT, bloody confusing I know
 		# otherwise SUBDOCK isn't quite sure if we've started/completed the run w/o listing contents of each output directory
 		# make note of this scruple here
@@ -192,7 +190,7 @@ with open(sys.argv[1], 'r') as indock, open(sys.argv[2], 'w') as savedest:
 				continue
 			savedest.write(line)" > $FIXINDOCK_SCRIPT
 
-python3 $FIXINDOCK_SCRIPT $DOCKFILES/INDOCK $JOB_DIR/dockfiles/INDOCK
+python3 $FIXINDOCK_SCRIPT $DOCKFILES/INDOCK $JOB_DIR/INDOCK
 
 TARSTREAM_SCRIPT=$JOB_DIR/tarstream.py
 printf "
@@ -243,7 +241,7 @@ log "starting DOCK vers=$vers"
 			zcat -f $INPUT_FILES
 		fi
 	fi
-) | env time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/dockfiles/INDOCK 2>/dev/null &
+) | env time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/INDOCK 2>/dev/null &
 dockppid=$!
 # find actual DOCK PID by grepping for our executable in ps output, as well as the returned PID (which should be a parent to the actual DOCK process)
 dockpid=$(ps -ef | awk '{print $8 "\t" $2 "\t" $3}' | grep $dockppid | grep $DOCKEXEC | awk '{print $2}')
