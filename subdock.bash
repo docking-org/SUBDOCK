@@ -77,7 +77,9 @@ echo "=================required arguments================="
 exists EXPORT_DEST "nfs output destination for OUTDOCK and test.mol2.gz files"
 exists INPUT_SOURCE "nfs directory containing one or more .db2.tgz files OR a file containing a list of db2.tgz files"
 exists DOCKFILES "nfs directory containing dock related files and INDOCK configuration for docking run"
-exists DOCKEXEC "nfs path to dock executable"
+exists MOLECULES_DIR_TO_BIND "absolute path to directory that all molecules to be docked have in common; docker / apptainer will bind this dir at runtime"
+exists DOCK3R_IMAGE "path to DOCK3R image"
+exists USE_APPTAINER_DOCK3R "boolean, whether to use Apptainer instead of Docker"
 
 echo "=================job controller settings================="
 # queue system is active if set to "true" otherwise inactive
@@ -212,12 +214,13 @@ echo "submitting $njobs out of $input jobs over $n_input_tot files. $((input-njo
 echo "!!! save the following to its own file for a re-usable superscript !!!"
 echo "==============================================================="
 echo "#!/bin/bash"
-for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC \
+for var in EXPORT_DEST INPUT_SOURCE DOCKFILES \
  SHRTCACHE SHRTCACHE_USE_ENV \
  USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE\
  USE_SLURM USE_SLURM_ARGS USE_SGE USE_SGE_ARGS USE_PARALLEL USE_PARALLEL_ARGS MAX_PARALLEL\
  QSUB_EXEC SBATCH_EXEC PARALLEL_EXEC \
- SUBMIT_WAIT_TIME USE_CACHED_SUBMIT_STATS; do
+ SUBMIT_WAIT_TIME USE_CACHED_SUBMIT_STATS \
+ MOLECULES_DIR_TO_BIND USE_APPTAINER_DOCK3R DOCK3R_IMAGE; do
 	echo "export $var=${!var}"
 done
 echo "bash $BINPATH"
@@ -226,11 +229,11 @@ echo "==============================================================="
 SGE_ENV_ARGS=""
 SLURM_ENV_ARGS=""
 # pass in rundock specific vars here- passing in the subdock specific ones as well runs into issue, mostly because of USE_SGE_ARGS and the like having non-standard formatting (damn whitespace...)
-for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC \
+for var in EXPORT_DEST INPUT_SOURCE DOCKFILES \
  SHRTCACHE SHRTCACHE_USE_ENV \
  USE_DB2_TGZ USE_DB2_TGZ_BATCH_SIZE USE_DB2 USE_DB2_BATCH_SIZE \
  USE_SLURM USE_SGE USE_PARALLEL \
- RESUBMIT_COUNT; do
+ RESUBMIT_COUNT MOLECULES_DIR_TO_BIND USE_APPTAINER_DOCK3R DOCK3R_IMAGE; do
 	#!~~QUEUE TEMPLATE~~!#
         # your queueing system may require explicit enumeration of environment values to export (like sge)
         # add a similar implementation here if required

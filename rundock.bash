@@ -36,21 +36,29 @@ elif [ "$USE_DB2" = "true" ]; then
 	batchsize=${USE_DB2_BATCH_SIZE-100}
 fi
 
+# Deprecated until DOCK3R requirements are confirmed to work with Charity
+: '
 # charity engine has special overrides
 if [ $USE_CHARITY = "true" ]; then
 	DOCKFILES=/local/input/dockfiles
 	tar -C /local/input -xf /local/input/dockfiles.tgz
-	DOCKEXEC=/bin/dock64
+	#DOCKEXEC=/bin/dock64
+	MOLECULES_DIR_TO_BIND=  # TODO
+	DOCK3R_IMAGE=  # TODO
 	INPUT_SOURCE=/local/input
 	EXPORT_DEST=/local/output
 	USE_DB2_TGZ="true"
 	batchsize=1
-	INPUT_FILES=$(find /local/input -name '*.db2.tgz')
+	INPUT_FILES=$(find /local/input -name "*.db2.tgz")
 else
 	TASK_ID_ACT=$(head -n $TASK_ID $EXPORT_DEST/joblist.$RESUBMIT_COUNT | tail -n 1)
 	offset=$((batchsize*TASK_ID_ACT))
 	INPUT_FILES=$(head -n $offset $EXPORT_DEST/file_list | tail -n $batchsize)
 fi
+'
+TASK_ID_ACT=$(head -n $TASK_ID $EXPORT_DEST/joblist.$RESUBMIT_COUNT | tail -n 1)
+offset=$((batchsize*TASK_ID_ACT))
+INPUT_FILES=$(head -n $offset $EXPORT_DEST/file_list | tail -n $batchsize)
 
 # log information about this job
 log host=$(hostname)
@@ -58,16 +66,17 @@ log user=$(whoami)
 log EXPORT_DEST=$EXPORT_DEST
 log INPUT_SOURCE=$INPUT_SOURCE
 log DOCKFILES=$DOCKFILES
-log DOCKEXEC=$DOCKEXEC
 log SHRTCACHE=$SHRTCACHE
 log JOB_ID=$JOB_ID
 log TASK_ID=$TASK_ID
 log TASK_ID_ACT=$TASK_ID_ACT
+log MOLECULES_DIR_TO_BIND=$MOLECULES_DIR_TO_BIND
+log DOCK3R_IMAGE=$DOCK3R_IMAGE
 
 # validate required environmental variables
 first=
 fail=
-for var in EXPORT_DEST INPUT_SOURCE DOCKFILES DOCKEXEC SHRTCACHE JOB_ID TASK_ID RESUBMIT_COUNT; do
+for var in EXPORT_DEST INPUT_SOURCE DOCKFILES SHRTCACHE JOB_ID TASK_ID RESUBMIT_COUNT MOLECULES_DIR_TO_BIND DOCK3R_IMAGE; do
   if [ -z ${!var} ]; then
     if [ -z $first ]; then
       echo "the following required parameters are not defined: "
@@ -153,7 +162,10 @@ function cleanup {
 trap cleanup EXIT
 
 pushd $JOB_DIR 2>/dev/null 1>&2
-$DOCKEXEC 2>/dev/null 1>&2 # this will produce an OUTDOCK with the version number
+
+# this will produce an OUTDOCK with the version number
+apptainer run --bind $SHRTCACHE,$PWD,$JOB_DIR,$(realpath $DOCKFILES),$MOLECULES_DIR_TO_BIND --env RUNDIR=$PWD,INDOCK=$JOB_DIR/INDOCK $DOCK3R_IMAGE 2>/dev/null 1>&2
+
 vers="3.7"
 if [ -z "$(head -n 1 OUTDOCK | grep 3.7)" ]; then
 	vers="3.8"
@@ -241,10 +253,11 @@ log "starting DOCK vers=$vers"
 			zcat -f $INPUT_FILES
 		fi
 	fi
-) | env time -v -o $OUTPUT/perfstats $DOCKEXEC $JOB_DIR/INDOCK 2>/dev/null &
+) | env time -v -o $OUTPUT/perfstats apptainer run --bind $SHRTCACHE,$PWD,$JOB_DIR,$(realpath $DOCKFILES),$MOLECULES_DIR_TO_BIND --env RUNDIR=$PWD,INDOCK=$JOB_DIR/INDOCK $DOCK3R_IMAGE 2>/dev/null &
 dockppid=$!
+
 # find actual DOCK PID by grepping for our executable in ps output, as well as the returned PID (which should be a parent to the actual DOCK process)
-dockpid=$(ps -ef | awk '{print $8 "\t" $2 "\t" $3}' | grep $dockppid | grep $DOCKEXEC | awk '{print $2}')
+dockpid=$(ps -ef | awk '{print $8 "\t" $2 "\t" $3}' | grep $dockppid | grep $DOCK3R_IMAGE | awk '{print $2}')
 
 function notify_dock {
 	log "time limit reached- notifying dock!"
@@ -271,7 +284,6 @@ done
 if [ $footgun -gt 0 ]; then
 	rm OUTDOCK
 	echo "this problematic OUTDOCK was removed to save disk space. https://wiki.docking.org/index.php?title=SUBDOCK_DOCK3.8#Mixing_DOCK_3.7_and_DOCK_3.8_-_known_problems" > OUTDOCK
-	echo "dockexec=$DOCKEXEC" >> OUTDOCK
 fi
 wait $dockppid
 sleep 5 # bash script seems to jump the gun and start cleanup prematurely when DOCK is interrupted. This is stupid but effective at preventing this
